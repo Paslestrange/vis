@@ -339,6 +339,7 @@ const permissionErrorById = ref<Record<string, string>>({});
 type ProjectInfo = {
   id: string;
   worktree?: string;
+  sandboxes?: string[];
 };
 
 type SessionInfo = {
@@ -1277,16 +1278,40 @@ async function fetchCurrentProject(directory?: string) {
   }
 }
 
-async function fetchSessionById(sessionId: string) {
-  if (!sessionId) return null;
+async function fetchSessionById(sessionId: string, directory?: string) {
+  if (!sessionId || !directory) return null;
   try {
-    const response = await fetch(`${OPENCODE_BASE_URL}/session/${sessionId}`);
+    const params = new URLSearchParams();
+    params.set('directory', directory);
+    const query = params.toString();
+    const response = await fetch(
+      `${OPENCODE_BASE_URL}/session/${sessionId}${query ? `?${query}` : ''}`,
+    );
     if (!response.ok) return null;
     const data = (await response.json()) as SessionInfo;
     return data && typeof data.id === 'string' ? data : null;
   } catch {
     return null;
   }
+}
+
+function projectSessionDirectories(project?: ProjectInfo) {
+  if (!project) return [] as string[];
+  const candidates = [] as string[];
+  if (project.worktree) candidates.push(project.worktree);
+  if (Array.isArray(project.sandboxes)) candidates.push(...project.sandboxes);
+  return Array.from(
+    new Set(candidates.map((directory) => directory.trim()).filter((directory) => directory)),
+  );
+}
+
+async function resolveSessionDirectory(sessionId: string, directories: string[]) {
+  if (!sessionId) return '';
+  for (const directory of directories) {
+    const session = await fetchSessionById(sessionId, directory);
+    if (session?.id === sessionId) return session.directory || directory;
+  }
+  return '';
 }
 
 async function fetchSessions(options: {
@@ -1532,12 +1557,6 @@ async function bootstrapSelections() {
     if (current) upsertProject(current);
 
     let resolvedProjectId = selectedProjectId.value;
-    const sessionFromUrl = selectedSessionId.value
-      ? await fetchSessionById(selectedSessionId.value)
-      : null;
-    if (sessionFromUrl?.projectID) {
-      resolvedProjectId = sessionFromUrl.projectID;
-    }
     if (!resolvedProjectId) {
       resolvedProjectId =
         current?.id ??
@@ -1547,10 +1566,20 @@ async function bootstrapSelections() {
     }
     if (resolvedProjectId) selectedProjectId.value = resolvedProjectId;
 
+    const selectedProject = projects.value.find((item) => item.id === resolvedProjectId);
+    const sessionCandidates = projectSessionDirectories(selectedProject);
+    let sessionDirectory = '';
+    if (selectedSessionId.value && sessionCandidates.length > 0) {
+      sessionDirectory = await resolveSessionDirectory(selectedSessionId.value, sessionCandidates);
+      if (sessionDirectory) selectedWorktreeDir.value = sessionDirectory;
+    }
+    if (!selectedSessionId.value && selectedProject?.worktree) {
+      selectedWorktreeDir.value = selectedProject.worktree;
+    }
+
     if (!selectedProjectDirectory.value) {
-      const project = projects.value.find((item) => item.id === resolvedProjectId);
-      if (project) {
-        const baseDir = projectBaseDirectory(project);
+      if (selectedProject) {
+        const baseDir = projectBaseDirectory(selectedProject);
         if (baseDir) selectedProjectDirectory.value = baseDir;
       }
     }
@@ -1561,11 +1590,8 @@ async function bootstrapSelections() {
       worktrees.value = [];
     }
 
-    if (sessionFromUrl?.directory) {
-      selectedWorktreeDir.value = sessionFromUrl.directory;
-      if (!worktrees.value.includes(sessionFromUrl.directory)) {
-        worktrees.value = [sessionFromUrl.directory, ...worktrees.value];
-      }
+    if (sessionDirectory && !worktrees.value.includes(sessionDirectory)) {
+      worktrees.value = [sessionDirectory, ...worktrees.value];
     }
 
     if (!selectedWorktreeDir.value) {

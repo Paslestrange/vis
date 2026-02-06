@@ -3062,6 +3062,18 @@ function extractBodyFromGrepOutput(output: string) {
   return output;
 }
 
+function formatGlobToolTitle(input: Record<string, unknown> | undefined) {
+  const pattern = typeof input?.pattern === 'string' ? input.pattern.trim() : '';
+  const path = typeof input?.path === 'string' ? input.path.trim() : '';
+  const include = typeof input?.include === 'string' ? input.include.trim() : '';
+  const segments: string[] = [];
+  if (pattern) segments.push(pattern);
+  if (path) segments.push(`@ ${path}`);
+  if (include) segments.push(`include ${include}`);
+  const title = segments.join(' ');
+  return title || undefined;
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, '&amp;')
@@ -3884,6 +3896,25 @@ function extractFileRead(payload: unknown, eventType: string) {
         toolStatus: status,
         toolName: tool,
         toolTitle: toolTitle && toolTitle.trim() ? toolTitle : undefined,
+      };
+    }
+
+    if (tool === 'glob') {
+      const stateError = state?.error;
+      const errorText =
+        typeof stateError === 'string'
+          ? stateError
+          : stateError !== undefined
+            ? formatToolValue(stateError)
+            : undefined;
+      return {
+        content: outputText ?? errorText ?? '',
+        path,
+        isWrite: false,
+        callId,
+        toolStatus: status,
+        toolName: tool,
+        toolTitle: formatGlobToolTitle(input),
       };
     }
 
@@ -4845,9 +4876,18 @@ function upsertToolEntry(
   if (entry.toolName === 'read' && entry.toolStatus && entry.toolStatus !== 'completed') {
     return;
   }
+  if (
+    entry.toolName === 'glob' &&
+    entry.toolStatus &&
+    entry.toolStatus !== 'completed' &&
+    entry.toolStatus !== 'error'
+  ) {
+    return;
+  }
   const isBashTool = entry.toolName === 'bash';
   const displayPath = resolveWorktreeRelativePath(entry.path);
-  const hideHeader = entry.toolName === 'grep' || entry.toolName === 'apply_patch';
+  const hideHeader =
+    entry.toolName === 'grep' || entry.toolName === 'apply_patch' || entry.toolName === 'glob';
   const header = isBashTool || hideHeader
     ? ''
     : displayPath

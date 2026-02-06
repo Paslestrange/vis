@@ -1118,7 +1118,12 @@ function isDarkThemeName(name: string) {
 
 function getEntryTitle(entry: FileReadEntry) {
   const prefix = getEntryPrefix(entry);
-  const withPrefix = (title: string) => `[${prefix}] ${title}`;
+  const sourceModel = prefix === 'MESSAGE' ? entry.messageModel?.trim() : '';
+  const withPrefix = (title: string) => {
+    const resolvedTitle = title.trim() || 'message';
+    if (sourceModel) return `[${prefix} from ${sourceModel}] ${resolvedTitle}`;
+    return `[${prefix}] ${resolvedTitle}`;
+  };
   if (entry.isPermission) {
     const permission = entry.permissionRequest?.permission;
     return permission ? withPrefix(`Permission: ${permission}`) : withPrefix('Permission request');
@@ -2185,12 +2190,20 @@ function extractMessageTime(info?: Record<string, unknown>): number | undefined 
 
 function parseUserMessageMeta(info?: Record<string, unknown>): UserMessageMeta | null {
   if (!info) return null;
-  const role = typeof info.role === 'string' ? info.role : '';
-  if (role !== 'user') return null;
   const agent = typeof info.agent === 'string' ? info.agent.trim() : '';
   const model = (info.model as Record<string, unknown> | undefined) ?? undefined;
-  const providerId = typeof model?.providerID === 'string' ? model.providerID.trim() : '';
-  const modelId = typeof model?.modelID === 'string' ? String(model.modelID).trim() : '';
+  const providerId =
+    typeof info.providerID === 'string'
+      ? info.providerID.trim()
+      : typeof model?.providerID === 'string'
+        ? model.providerID.trim()
+        : '';
+  const modelId =
+    typeof info.modelID === 'string'
+      ? String(info.modelID).trim()
+      : typeof model?.modelID === 'string'
+        ? String(model.modelID).trim()
+        : '';
   const variant = typeof info.variant === 'string' ? info.variant.trim() : '';
   if (!agent && !modelId && !providerId && !variant) return null;
   return {
@@ -2265,8 +2278,11 @@ function applyUserMessageMetaToQueue(messageId: string, meta: UserMessageMeta) {
   const displayMeta = resolveUserMessageDisplay(meta);
   if (!displayMeta) return;
   queue.value.forEach((entry, index) => {
-    if (!entry.isMessage || entry.messageId !== messageId) return;
-    if (entry.role !== 'user') return;
+    const matchesReasoningMessage = Boolean(
+      entry.isReasoning &&
+        activeReasoningMessageIdByKey.get(getReasoningKey(entry.sessionId)) === messageId,
+    );
+    if (!entry.isMessage || (entry.messageId !== messageId && !matchesReasoningMessage)) return;
     queue.value.splice(index, 1, {
       ...entry,
       messageAgent: displayMeta.agent ?? entry.messageAgent,
@@ -2278,8 +2294,11 @@ function applyUserMessageMetaToQueue(messageId: string, meta: UserMessageMeta) {
 
 function applyUserMessageTimeToQueue(messageId: string, messageTime: number) {
   queue.value.forEach((entry, index) => {
-    if (!entry.isMessage || entry.messageId !== messageId) return;
-    if (entry.role !== 'user') return;
+    const matchesReasoningMessage = Boolean(
+      entry.isReasoning &&
+        activeReasoningMessageIdByKey.get(getReasoningKey(entry.sessionId)) === messageId,
+    );
+    if (!entry.isMessage || (entry.messageId !== messageId && !matchesReasoningMessage)) return;
     queue.value.splice(index, 1, {
       ...entry,
       messageTime,
@@ -2291,6 +2310,8 @@ function pickLastUserSelection(messages: Array<Record<string, unknown>>): UserMe
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const entry = messages[i];
     const info = (entry?.info as Record<string, unknown> | undefined) ?? undefined;
+    const role = typeof info?.role === 'string' ? info.role : '';
+    if (role !== 'user') continue;
     const meta = parseUserMessageMeta(info);
     if (!meta) continue;
     return {
@@ -5066,7 +5087,7 @@ function extractMessage(payload: unknown, eventType: string) {
   if (userMeta) {
     storeUserMessageMeta(messageId ?? id, userMeta);
   }
-  if (resolvedRole === 'user' && typeof messageTime === 'number') {
+  if (typeof messageTime === 'number') {
     storeUserMessageTime(messageId ?? id, messageTime);
   }
 
@@ -6484,7 +6505,7 @@ function connect() {
         message.id,
         message.messageTime,
       );
-      const displayMeta = isUserMessage ? resolveUserMessageDisplay(resolvedMeta) : null;
+      const displayMeta = resolveUserMessageDisplay(resolvedMeta);
 
       const header = '';
       const time = Date.now();

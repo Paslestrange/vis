@@ -48,7 +48,7 @@
             </div>
           </div>
           <div
-            v-if="q.role === 'user' && formatMessageMeta(q)"
+            v-if="formatMessageMeta(q)"
             class="message-meta"
           >
             {{ formatMessageMeta(q) }}

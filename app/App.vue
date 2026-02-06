@@ -8,6 +8,7 @@
         :active-directory="selectedWorktreeDir"
         :active-directory-meta="worktreeMetaByDir"
         :sessions="filteredSessions"
+        :home-path="homePath"
         v-model:base-worktree="selectedProjectDirectory"
         v-model:active-directory="selectedWorktreeDir"
         v-model:selected-session-id="selectedSessionId"
@@ -362,6 +363,8 @@ const inputResizeState = ref<{
 const inputHeight = ref<number | null>(null);
 let nextWindowZIndex = 20;
 const selectedSessionStatus = ref<'busy' | 'idle' | ''>('');
+let sessionStatusRequestId = 0;
+let primaryHistoryRequestId = 0;
 const messageIndexById = new Map<string, number>();
 const toolIndexByCallId = new Map<string, number>();
 const userMessageIds = new Set<string>();
@@ -469,6 +472,7 @@ const selectedProjectId = ref('');
 const selectedWorktreeDir = ref('');
 const selectedSessionId = ref('');
 const selectedProjectDirectory = ref('');
+const homePath = ref('');
 const initialQuery = readQuerySelection();
 if (initialQuery.projectId) selectedProjectId.value = initialQuery.projectId;
 if (initialQuery.sessionId) selectedSessionId.value = initialQuery.sessionId;
@@ -598,6 +602,18 @@ function normalizeDirectory(value: string) {
   return trimmed || value;
 }
 
+function replaceHomePrefix(path: string) {
+  const normalizedPath = normalizeDirectory(path);
+  const normalizedHome = normalizeDirectory(homePath.value);
+  if (!normalizedHome || !normalizedPath.startsWith('/')) return normalizedPath;
+  if (normalizedPath === normalizedHome) return '~';
+  const prefix = `${normalizedHome}/`;
+  if (normalizedPath.startsWith(prefix)) {
+    return `~/${normalizedPath.slice(prefix.length)}`;
+  }
+  return normalizedPath;
+}
+
 function sessionLabel(session: SessionInfo) {
   const base = session.title || session.slug || session.id;
   return `${base} (${session.id.slice(0, 6)})`;
@@ -611,12 +627,12 @@ function resolveWorktreeRelativePath(path?: string) {
   if (!path) return undefined;
   const normalizedPath = normalizeDirectory(path);
   const base = normalizeDirectory(getSelectedWorktreeDirectory());
-  if (!base) return normalizedPath;
+  if (!base) return replaceHomePrefix(normalizedPath);
   if (!normalizedPath.startsWith('/')) return normalizedPath;
   if (normalizedPath === base) return '.';
   const prefix = `${base}/`;
   if (normalizedPath.startsWith(prefix)) return normalizedPath.slice(prefix.length);
-  return normalizedPath;
+  return replaceHomePrefix(normalizedPath);
 }
 
 function requireSelectedWorktree(context: 'send') {
@@ -1360,6 +1376,19 @@ function removeSessionFromGraph(sessionId: string) {
   sessionParentById.value = next;
 }
 
+async function fetchHomePath() {
+  try {
+    const response = await fetch(`${OPENCODE_BASE_URL}/path`);
+    if (!response.ok) return;
+    const data = (await response.json()) as { home?: string };
+    if (typeof data.home === 'string' && data.home.trim()) {
+      homePath.value = data.home.trim();
+    }
+  } catch {
+    return;
+  }
+}
+
 async function fetchProjects(directory?: string) {
   projectError.value = '';
   try {
@@ -1724,10 +1753,19 @@ async function bootstrapSelections() {
       );
       const matched = checks.find((entry) => Boolean(entry));
       if (matched) {
+        const targetSessionId = selectedSessionId.value;
         selectedProjectDirectory.value = selectedProject.worktree?.trim() || matched.directory;
         selectedWorktreeDir.value = matched.directory;
+        await fetchCommands(selectedWorktreeDir.value);
         await fetchWorktrees(selectedProjectDirectory.value);
         await refreshSessionsForDirectory(selectedWorktreeDir.value);
+        if (targetSessionId) {
+          selectedSessionStatus.value = '';
+          retryStatus.value = null;
+          await fetchHistory(targetSessionId);
+          await restoreShellSessions(targetSessionId);
+          await fetchSessionStatus(selectedWorktreeDir.value || undefined);
+        }
       } else {
         selectedProjectId.value = '';
         selectedSessionId.value = '';
@@ -1875,6 +1913,9 @@ async function fetchCommands(directory?: string) {
 }
 
 async function fetchSessionStatus(directory?: string) {
+  const requestId = ++sessionStatusRequestId;
+  const selectedAtRequest = selectedSessionId.value;
+  const directoryAtRequest = directory ?? '';
   try {
     const params = new URLSearchParams();
     if (directory) params.set('directory', directory);
@@ -1884,6 +1925,9 @@ async function fetchSessionStatus(directory?: string) {
     );
     if (!response.ok) throw new Error(`Session status request failed (${response.status})`);
     const data = (await response.json()) as Record<string, { type?: string }>;
+    if (requestId !== sessionStatusRequestId) return;
+    if (selectedAtRequest !== selectedSessionId.value) return;
+    if (directoryAtRequest !== (activeDirectory.value || '')) return;
     sessionStatusById.clear();
     Object.entries(data ?? {}).forEach(([sessionId, status]) => {
       const type = typeof status?.type === 'string' ? status.type : '';
@@ -1895,7 +1939,9 @@ async function fetchSessionStatus(directory?: string) {
     });
     if (selectedSessionId.value) {
       const nextStatus = sessionStatusById.get(selectedSessionId.value);
-      if (nextStatus) selectedSessionStatus.value = nextStatus;
+      selectedSessionStatus.value = nextStatus ?? '';
+    } else {
+      selectedSessionStatus.value = '';
     }
   } catch (error) {
     log('Session status load failed', error);
@@ -2068,6 +2114,8 @@ function pickLastUserSelection(messages: Array<Record<string, unknown>>): UserMe
 
 async function fetchHistory(sessionId: string, isSubagentMessage = false) {
   if (!sessionId) return;
+  const requestId = !isSubagentMessage ? ++primaryHistoryRequestId : 0;
+  const requestedDirectory = !isSubagentMessage ? getSelectedWorktreeDirectory() : '';
   try {
     const directory = getSelectedWorktreeDirectory();
     const params = new URLSearchParams();
@@ -2079,6 +2127,11 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
     if (!response.ok) throw new Error(`History request failed (${response.status})`);
     const data = (await response.json()) as Array<Record<string, unknown>>;
     if (!Array.isArray(data)) return;
+    if (!isSubagentMessage) {
+      if (requestId !== primaryHistoryRequestId) return;
+      if (selectedSessionId.value !== sessionId) return;
+      if (getSelectedWorktreeDirectory() !== requestedDirectory) return;
+    }
     if (!isSubagentMessage) {
       const selection = pickLastUserSelection(data);
       if (selection) {
@@ -2628,6 +2681,7 @@ watch(selectedSessionId, () => {
   finishedReasoningByKey.clear();
   subagentSessionExpiry.clear();
   selectedSessionStatus.value = '';
+  retryStatus.value = null;
   if (selectedSessionId.value) {
     void fetchHistory(selectedSessionId.value);
     void restoreShellSessions(selectedSessionId.value);
@@ -4979,19 +5033,29 @@ function connect() {
 
     const sessionStatus = extractSessionStatus(payload, resolvedEventType);
     if (sessionStatus) {
+      const isSelectedSessionEvent = Boolean(
+        sessionId && selectedSessionId.value && sessionId === selectedSessionId.value,
+      );
+      const isAllowedSessionEvent = Boolean(
+        sessionId && selectedSessionId.value && allowedSessionIds.value.has(sessionId),
+      );
       if (sessionStatus.status === 'busy' || sessionStatus.status === 'idle') {
-        retryStatus.value = null;
         const nextStatus = sessionStatus.status as 'busy' | 'idle';
         if (sessionId) sessionStatusById.set(sessionId, nextStatus);
-        if (!selectedSessionId.value || sessionId === selectedSessionId.value) {
+        if (isSelectedSessionEvent && sessionId) {
+          retryStatus.value = null;
           selectedSessionStatus.value = nextStatus;
-          updateReasoningExpiry(sessionId ?? selectedSessionId.value, nextStatus);
-        } else if (sessionId) {
+          updateReasoningExpiry(sessionId, nextStatus);
+        } else if (isAllowedSessionEvent && sessionId) {
           updateSubagentExpiry(sessionId, nextStatus);
           updateReasoningExpiry(sessionId, nextStatus);
         }
       } else if (sessionStatus.status === 'retry') {
-        if (sessionStatus.message && typeof sessionStatus.next === 'number') {
+        if (
+          isSelectedSessionEvent &&
+          sessionStatus.message &&
+          typeof sessionStatus.next === 'number'
+        ) {
           retryStatus.value = {
             message: sessionStatus.message,
             next: sessionStatus.next,
@@ -5325,6 +5389,7 @@ function connect() {
 
 onMounted(() => {
   hydrateShellPtyStorage();
+  void fetchHomePath();
   void bootstrapSelections();
   fetchProviders();
   fetchAgents();

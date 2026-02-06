@@ -12,7 +12,7 @@
             <div class="dropdown-list">
               <div v-if="baseWorktrees.length === 0" class="dropdown-empty">No directories</div>
               <DropdownItem v-for="dir in baseWorktrees" :key="dir" :value="dir">
-                <span class="dropdown-item-label">{{ dir }}</span>
+                <span class="dropdown-item-label">{{ formatBaseWorktree(dir) }}</span>
               </DropdownItem>
             </div>
           </template>
@@ -115,6 +115,7 @@ const props = defineProps<{
   activeDirectoryMeta?: Record<string, { branch?: string }>;
   sessions: SessionInfo[];
   selectedSessionId: string;
+  homePath?: string;
 }>();
 
 const emit = defineEmits<{
@@ -143,7 +144,9 @@ const sessionValue = computed({
   set: (value) => emit('update:selected-session-id', value),
 });
 
-const selectedBaseWorktreeLabel = computed(() => props.baseWorktree || '');
+const selectedBaseWorktreeLabel = computed(() =>
+  props.baseWorktree ? formatBaseWorktree(props.baseWorktree) : '',
+);
 
 const selectedActiveDirectoryLabel = computed(() => {
   if (!props.activeDirectory) return '';
@@ -169,6 +172,16 @@ function activeDirectoryLabel(directory: string) {
 function normalizeDirectory(value: string) {
   const trimmed = value.replace(/\/+$/, '');
   return trimmed || value;
+}
+
+function formatBaseWorktree(path: string) {
+  const home = normalizeDirectory(props.homePath ?? '');
+  const target = normalizeDirectory(path);
+  if (!home || !target.startsWith('/')) return path;
+  if (target === home) return '~';
+  const prefix = `${home}/`;
+  if (target.startsWith(prefix)) return `~/${target.slice(prefix.length)}`;
+  return path;
 }
 
 function activeDirectoryBranch(directory: string) {

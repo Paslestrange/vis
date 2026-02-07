@@ -46,6 +46,7 @@ async function startRender() {
     after: props.after,
     lang: props.lang,
     theme: props.theme,
+    gutterMode: 'double',
   })
     .then((html) => {
       if (current !== state.requestId) return;

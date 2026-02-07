@@ -1,4 +1,4 @@
-import RenderWorker from '../workers/render-worker?worker&inline';
+import RenderWorker from '../workers/render-worker?worker';
 
 type RenderRequest = {
   id: string;
@@ -7,6 +7,9 @@ type RenderRequest = {
   after?: string;
   lang: string;
   theme: string;
+  gutterMode?: 'none' | 'single' | 'double';
+  gutterLines?: string[];
+  grepPattern?: string;
 };
 
 type RenderResponse =

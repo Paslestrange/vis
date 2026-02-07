@@ -1,4 +1,4 @@
-import { createHighlighter } from 'shiki/bundle/web';
+import { bundledLanguages, createHighlighter } from 'shiki/bundle/web';
 
 type RenderRequest = {
   id: string;
@@ -7,19 +7,31 @@ type RenderRequest = {
   after?: string;
   lang: string;
   theme: string;
+  gutterMode?: 'none' | 'single' | 'double';
+  gutterLines?: string[];
+  grepPattern?: string;
 };
 
 type RenderResponse =
   | { id: string; ok: true; html: string }
   | { id: string; ok: false; error: string };
 
+type DiffRow = {
+  html: string;
+  rowClass?: string;
+};
+
 let highlighterPromise: Promise<Awaited<ReturnType<typeof createHighlighter>>> | null = null;
 let cachedTheme = '';
+let loadedLanguageCache = new Set<string>(['text']);
+let failedLanguageCache = new Set<string>();
 
 function getHighlighter(theme: string) {
   if (!highlighterPromise || cachedTheme !== theme) {
     cachedTheme = theme;
     highlighterPromise = createHighlighter({ themes: [theme], langs: ['text'] });
+    loadedLanguageCache = new Set(['text']);
+    failedLanguageCache = new Set();
   }
   return highlighterPromise;
 }
@@ -38,18 +50,44 @@ function languageCandidates(lang: string) {
 async function resolveLanguage(highlighter: Awaited<ReturnType<typeof createHighlighter>>, lang: string) {
   const loaded =
     typeof highlighter.getLoadedLanguages === 'function' ? highlighter.getLoadedLanguages() : [];
+  loaded.forEach((item) => loadedLanguageCache.add(item));
   for (const candidate of languageCandidates(lang)) {
-    if (loaded.includes(candidate)) return candidate;
-    if (typeof highlighter.loadLanguage === 'function') {
-      try {
-        await highlighter.loadLanguage(candidate as never);
-        return candidate;
-      } catch {
-        continue;
-      }
-    }
+    if (loadedLanguageCache.has(candidate)) return candidate;
+    if (candidate === 'text') return 'text';
+    const loadedCandidate = await tryLoadLanguage(highlighter, candidate);
+    if (loadedCandidate) return candidate;
   }
   return 'text';
+}
+
+type LanguageLoader = () => Promise<{ default: unknown }>;
+
+async function tryLoadLanguage(
+  highlighter: Awaited<ReturnType<typeof createHighlighter>>,
+  candidate: string,
+) {
+  if (failedLanguageCache.has(candidate)) return false;
+  if (typeof highlighter.loadLanguage !== 'function') return false;
+
+  const loader = (bundledLanguages as Record<string, unknown>)[candidate];
+  try {
+    if (typeof loader === 'function') {
+      const module = await (loader as LanguageLoader)();
+      const language = module?.default;
+      await highlighter.loadLanguage(language as never);
+    } else {
+      await highlighter.loadLanguage(candidate as never);
+    }
+    loadedLanguageCache.add(candidate);
+    failedLanguageCache.delete(candidate);
+    return true;
+  } catch (error) {
+    if (!failedLanguageCache.has(candidate)) {
+      console.warn('[render-worker] language load failed', candidate, error);
+    }
+    failedLanguageCache.add(candidate);
+    return false;
+  }
 }
 
 function escapeHtml(value: string) {
@@ -59,6 +97,28 @@ function escapeHtml(value: string) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function buildHtmlFromRows(rows: string) {
+  return `<div class="code-host"><pre class="shiki"><code>${rows}</code></pre></div>`;
+}
+
+function buildCodeRows(lines: string[], mode: 'none' | 'single' | 'double', gutterLines?: string[]) {
+  return lines
+    .map((line, index) => {
+      if (mode === 'none') {
+        return `<span class="code-row">${line}</span>`;
+      }
+      if (mode === 'double') {
+        const pair = gutterLines?.[index]?.split('\t') ?? [];
+        const left = pair[0] ?? String(index + 1);
+        const right = pair[1] ?? '';
+        return `<span class="code-row"><span class="code-gutter">${escapeHtml(left)}</span><span class="code-gutter">${escapeHtml(right)}</span>${line}</span>`;
+      }
+      const gutter = gutterLines?.[index] ?? String(index + 1);
+      return `<span class="code-row file-row"><span class="code-gutter span-2">${escapeHtml(gutter)}</span>${line}</span>`;
+    })
+    .join('\n');
 }
 
 function applyPatchToCode(code: string, patch: string) {
@@ -77,7 +137,7 @@ function applyPatchToCode(code: string, patch: string) {
       index += 1;
       continue;
     }
-    let oldLine = Number(match[1]);
+    const oldLine = Number(match[1]);
     let pointer = oldLine - 1 + offset;
     index += 1;
     while (index < patchLines.length && !patchLines[index].startsWith('@@')) {
@@ -167,23 +227,99 @@ function buildDiffGutterLines(source: string) {
   return { oldValues, newValues };
 }
 
-type DiffRow = {
-  html: string;
-  rowClass?: string;
-};
-
-function wrapDiffRows(lines: DiffRow[], oldValues: string[], newValues: string[]) {
+function wrapDiffRows(
+  lines: DiffRow[],
+  oldValues: string[],
+  newValues: string[],
+  mode: 'none' | 'single' | 'double',
+) {
   return lines
     .map((row, index) => {
+      const rowClass = row.rowClass ? ` code-row ${row.rowClass}` : ' code-row';
+      if (mode === 'none') return `<span class="${rowClass.trim()}">${row.html}</span>`;
+      if (mode === 'single') {
+        const left = oldValues[index] ?? '';
+        const right = newValues[index] ?? '';
+        const gutter = right || left;
+        return `<span class="${rowClass.trim()}"><span class="code-gutter span-2">${escapeHtml(gutter)}</span>${row.html}</span>`;
+      }
       const oldValue = oldValues[index] ?? '';
       const newValue = newValues[index] ?? '';
-      const rowClass = row.rowClass ? ` code-row ${row.rowClass}` : ' code-row';
       return `<span class="${rowClass.trim()}"><span class="code-gutter">${escapeHtml(oldValue)}</span><span class="code-gutter">${escapeHtml(newValue)}</span>${row.html}</span>`;
     })
     .join('\n');
 }
 
-function buildDiffHtmlFromCode(before: string, after: string, diff: string, lang: string, theme: string) {
+function buildGrepMatcher(pattern?: string) {
+  if (!pattern?.trim()) return null;
+  try {
+    return new RegExp(pattern, 'g');
+  } catch {
+    return null;
+  }
+}
+
+function highlightGrepMatches(line: string, matcher: RegExp | null) {
+  if (!matcher) return escapeHtml(line);
+  matcher.lastIndex = 0;
+  let html = '';
+  let cursor = 0;
+  while (cursor <= line.length) {
+    const match = matcher.exec(line);
+    if (!match) break;
+    const index = match.index;
+    const value = match[0] ?? '';
+    if (index > cursor) {
+      html += escapeHtml(line.slice(cursor, index));
+    }
+    if (!value) {
+      if (index >= line.length) break;
+      html += escapeHtml(line[index] ?? '');
+      cursor = index + 1;
+      matcher.lastIndex = cursor;
+      continue;
+    }
+    html += `<span class="grep-match"><strong>${escapeHtml(value)}</strong></span>`;
+    cursor = index + value.length;
+    if (!matcher.global) break;
+    if (matcher.lastIndex <= index) matcher.lastIndex = index + value.length;
+  }
+  if (cursor < line.length) html += escapeHtml(line.slice(cursor));
+  return html;
+}
+
+function renderGrepRows(
+  code: string,
+  mode: 'none' | 'single' | 'double',
+  gutterLines?: string[],
+  pattern?: string,
+) {
+  const lines = code.split('\n');
+  const matcher = buildGrepMatcher(pattern);
+  return lines
+    .map((line, index) => {
+      const content = `<span class="line">${highlightGrepMatches(line, matcher)}</span>`;
+      if (mode === 'none') return `<span class="code-row">${content}</span>`;
+      if (mode === 'double') {
+        const pair = gutterLines?.[index]?.split('\t') ?? [];
+        const left = pair[0] ?? '';
+        const right = pair[1] ?? '';
+        return `<span class="code-row"><span class="code-gutter">${escapeHtml(left)}</span><span class="code-gutter">${escapeHtml(right)}</span>${content}</span>`;
+      }
+      const gutter = gutterLines?.[index] ?? String(index + 1);
+      return `<span class="code-row"><span class="code-gutter span-2">${escapeHtml(gutter)}</span>${content}</span>`;
+    })
+    .join('\n');
+}
+
+function buildDiffHtmlFromCode(
+  before: string,
+  after: string,
+  diff: string,
+  lang: string,
+  theme: string,
+  mode: 'none' | 'single' | 'double',
+) {
   return getHighlighter(theme).then(async (highlighter) => {
     const resolvedLang = await resolveLanguage(highlighter, lang);
     const beforeHtml = highlighter.codeToHtml(before, { lang: resolvedLang, theme });
@@ -232,28 +368,40 @@ function buildDiffHtmlFromCode(before: string, after: string, diff: string, lang
       newLine += 1;
     });
     const { oldValues, newValues } = buildDiffGutterLines(diff);
-    const rows = wrapDiffRows(output, oldValues, newValues);
-    return `<div class="code-host"><pre class="shiki"><code>${rows}</code></pre></div>`;
+    const rows = wrapDiffRows(output, oldValues, newValues, mode);
+    return buildHtmlFromRows(rows);
   });
 }
 
+async function renderCodeHtml(request: RenderRequest) {
+  const highlighter = await getHighlighter(request.theme);
+  const resolvedLang = await resolveLanguage(highlighter, request.lang);
+  const html = highlighter.codeToHtml(request.code, { lang: resolvedLang, theme: request.theme });
+  const lines = extractShikiLines(html);
+  const mode = request.gutterMode ?? 'single';
+  return buildHtmlFromRows(buildCodeRows(lines, mode, request.gutterLines));
+}
+
 function renderRequest(request: RenderRequest): Promise<string> {
-  if (!request.patch) {
-    return getHighlighter(request.theme).then(async (highlighter) => {
-      const resolvedLang = await resolveLanguage(highlighter, request.lang);
-      const html = highlighter.codeToHtml(request.code, { lang: resolvedLang, theme: request.theme });
-      const lines = extractShikiLines(html);
-      const rows = lines
-        .map((line, index) => {
-          const lineNumber = String(index + 1);
-          return `<span class="code-row file-row"><span class="code-gutter span-2">${escapeHtml(lineNumber)}</span>${line}</span>`;
-        })
-        .join('\n');
-      return `<div class="code-host"><pre class="shiki"><code>${rows}</code></pre></div>`;
-    });
+  if (request.patch) {
+    const after = request.after ?? applyPatchToCode(request.code, request.patch);
+    return buildDiffHtmlFromCode(
+      request.code,
+      after,
+      request.patch,
+      request.lang,
+      request.theme,
+      request.gutterMode ?? 'double',
+    );
   }
-  const after = request.after ?? applyPatchToCode(request.code, request.patch);
-  return buildDiffHtmlFromCode(request.code, after, request.patch, request.lang, request.theme);
+
+  if (request.grepPattern !== undefined) {
+    const mode = request.gutterMode ?? 'single';
+    const rows = renderGrepRows(request.code, mode, request.gutterLines, request.grepPattern);
+    return Promise.resolve(buildHtmlFromRows(rows));
+  }
+
+  return renderCodeHtml(request);
 }
 
 self.onmessage = (event: MessageEvent<RenderRequest>) => {

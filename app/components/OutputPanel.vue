@@ -10,17 +10,18 @@
         @wheel="$emit('wheel', $event)"
         @touchmove="$emit('touchmove')"
       >
-      <div
-        v-for="q in queue.filter((entry) => entry.isMessage && !entry.isSubagentMessage)"
-        :key="q.messageId ?? q.time"
-        class="output-entry"
-        :class="{
-          'is-user': q.role === 'user',
-          'is-user-build': q.role === 'user' && getAgentTone(q) === 'build',
-          'is-user-plan': q.role === 'user' && getAgentTone(q) === 'plan',
-          'is-user-neutral': q.role === 'user' && getAgentTone(q) === 'neutral',
-        }"
-      >
+        <div ref="contentEl" class="output-panel-content">
+          <div
+            v-for="q in queue.filter((entry) => entry.isMessage && !entry.isSubagentMessage)"
+            :key="q.messageKey ?? q.messageId ?? q.time"
+            class="output-entry"
+            :class="{
+              'is-user': q.role === 'user',
+              'is-user-build': q.role === 'user' && getAgentTone(q) === 'build',
+              'is-user-plan': q.role === 'user' && getAgentTone(q) === 'plan',
+              'is-user-neutral': q.role === 'user' && getAgentTone(q) === 'neutral',
+            }"
+          >
           <div
             v-if="q.role === 'user' && q.messageId && q.sessionId"
             class="output-entry-actions"
@@ -48,7 +49,15 @@
               '--scroll-duration': `${q.scrollDuration}s`,
             }"
           >
-            <div class="shiki-host is-message" v-html="q.html"></div>
+            <MessageViewer
+              :code="q.content"
+              :lang="'markdown'"
+              :theme="theme"
+              :wrap-mode="'soft'"
+              :gutter-mode="'none'"
+              :is-message="true"
+              @rendered="handleMessageRendered"
+            />
             <div v-if="q.attachments && q.attachments.length > 0" class="output-entry-attachments">
               <img
                 v-for="item in q.attachments"
@@ -72,16 +81,17 @@
           >
             {{ formatMessageUsage(q) }}
           </div>
+          </div>
+          <button
+            v-show="!isFollowing"
+            type="button"
+            class="follow-button"
+            aria-label="Scroll to latest"
+            @click="$emit('resume-follow')"
+          >
+            ↓
+          </button>
         </div>
-        <button
-          v-show="!isFollowing"
-          type="button"
-          class="follow-button"
-          aria-label="Scroll to latest"
-          @click="$emit('resume-follow')"
-        >
-          ↓
-        </button>
       </div>
       <div class="statusbar" role="status" aria-live="polite">
         <div class="statusbar-section statusbar-left">
@@ -96,7 +106,8 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import MessageViewer from './MessageViewer.vue';
 type FileReadEntry = {
   time: number;
   expiresAt: number;
@@ -136,6 +147,7 @@ type FileReadEntry = {
   toolStatus?: string;
   toolName?: string;
   messageId?: string;
+  messageKey?: string;
   callId?: string;
 };
 
@@ -146,6 +158,7 @@ const props = defineProps<{
   isStatusError: boolean;
   isThinking: boolean;
   isRetryStatus?: boolean;
+  theme: string;
 }>();
 
 const emit = defineEmits<{
@@ -158,10 +171,42 @@ const emit = defineEmits<{
 }>();
 
 const panelEl = ref<HTMLDivElement | null>(null);
+const contentEl = ref<HTMLDivElement | null>(null);
 const thinkingFrames = ['', '.', '..', '...'];
 const thinkingIndex = ref(0);
 const thinkingSuffix = ref('');
 let thinkingTimer: number | undefined;
+let contentResizeObserver: ResizeObserver | undefined;
+let followResizeFrame: number | undefined;
+
+function scheduleFollowScrollIfNeeded() {
+  if (!props.isFollowing) return;
+  if (followResizeFrame !== undefined) {
+    cancelAnimationFrame(followResizeFrame);
+  }
+  followResizeFrame = requestAnimationFrame(() => {
+    followResizeFrame = undefined;
+    const panel = panelEl.value;
+    if (!panel) return;
+    panel.scrollTop = Math.max(0, panel.scrollHeight - panel.clientHeight);
+  });
+}
+
+function handleMessageRendered() {
+  scheduleFollowScrollIfNeeded();
+}
+
+function setupContentResizeObserver() {
+  contentResizeObserver?.disconnect();
+  contentResizeObserver = undefined;
+  if (typeof ResizeObserver === 'undefined') return;
+  const target = contentEl.value;
+  if (!target) return;
+  contentResizeObserver = new ResizeObserver(() => {
+    scheduleFollowScrollIfNeeded();
+  });
+  contentResizeObserver.observe(target);
+}
 
 function confirmFork(entry: FileReadEntry) {
   if (!entry.sessionId || !entry.messageId || entry.role !== 'user') return;
@@ -265,7 +310,21 @@ watch(
   { immediate: true },
 );
 
+watch(contentEl, () => {
+  setupContentResizeObserver();
+});
+
+onMounted(() => {
+  setupContentResizeObserver();
+});
+
 onBeforeUnmount(() => {
+  if (followResizeFrame !== undefined) {
+    cancelAnimationFrame(followResizeFrame);
+    followResizeFrame = undefined;
+  }
+  contentResizeObserver?.disconnect();
+  contentResizeObserver = undefined;
   if (thinkingTimer !== undefined) window.clearInterval(thinkingTimer);
 });
 
@@ -302,13 +361,19 @@ defineExpose({ panelEl });
 .output-panel-scroll {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   padding: 10px 12px 12px;
   min-height: 0;
   flex: 1 1 auto;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+.output-panel-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 100%;
 }
 
 .output-entry {

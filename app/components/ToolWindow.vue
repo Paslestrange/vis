@@ -43,16 +43,17 @@
         :lang="entry.toolLang ?? 'diff'"
         :theme="theme"
       />
-      <FileViewer
+      <MessageViewer
         v-else
-        :entry="{
-          html: entry.html,
-          content: entry.content,
-          toolLang: entry.toolLang,
-          toolGutterMode: entry.toolGutterMode,
-          isBinary: false,
-        }"
+        :code="renderCode"
+        :lang="viewerLang"
         :theme="theme"
+        :wrap-mode="viewerWrapMode"
+        :gutter-mode="viewerGutterMode"
+        :gutter-lines="viewerGutterLines"
+        :grep-pattern="viewerGrepPattern"
+        :is-message="entry.isMessage"
+        @rendered="onRendered"
       />
     </div>
     <div
@@ -66,7 +67,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import DiffViewer from './DiffViewer.vue';
-import FileViewer from './FileViewer.vue';
+import MessageViewer from './MessageViewer.vue';
 import PermissionWindow from './PermissionWindow.vue';
 import QuestionWindow from './QuestionWindow.vue';
 
@@ -77,12 +78,14 @@ type ToolWindowEntry = {
   time: number;
   x: number;
   y: number;
+  header: string;
   scroll: boolean;
   scrollDistance: number;
   scrollDuration: number;
   html: string;
   content?: string;
   toolLang?: string;
+  grepPattern?: string;
   isWrite: boolean;
   isMessage: boolean;
   isSubagentMessage?: boolean;
@@ -91,10 +94,12 @@ type ToolWindowEntry = {
   isPermission?: boolean;
   isQuestion?: boolean;
   role?: 'user' | 'assistant';
+  toolStatus?: string;
   toolName?: string;
   toolKey?: string;
   toolWrapMode?: 'default' | 'soft';
   toolGutterMode?: 'default' | 'none' | 'grep-source';
+  toolGutterLines?: string[];
   messageId?: string;
   sessionId?: string;
   messageAgent?: string;
@@ -117,6 +122,7 @@ const props = defineProps<{
   onResizeEntry: (entry: ToolWindowEntry, event: PointerEvent) => void;
   onFloatingScrollEntry: (entry: ToolWindowEntry, event: Event) => void;
   onFloatingWheelEntry: (entry: ToolWindowEntry, event: WheelEvent) => void;
+  onRenderedEntry: (entry: ToolWindowEntry) => void;
   isPermissionSubmitting: (requestId: string) => boolean;
   getPermissionError: (requestId: string) => string;
   onPermissionReply: (payload: { requestId: string; reply: PermissionReply }) => void;
@@ -161,6 +167,38 @@ const termStyle = computed(() => ({
   zIndex: entry.value.zIndex ?? undefined,
 }));
 
+const renderCode = computed(() => {
+  const body = entry.value.content ?? '';
+  if (entry.value.isMessage) return body;
+  return `${entry.value.header ?? ''}${body}`;
+});
+
+const viewerLang = computed(() => entry.value.toolLang ?? (entry.value.isMessage ? 'markdown' : 'text'));
+
+const viewerWrapMode = computed<'default' | 'soft'>(() => {
+  if (entry.value.isMessage) return 'soft';
+  return entry.value.toolWrapMode ?? 'default';
+});
+
+const viewerGutterMode = computed<'none' | 'single' | 'double'>(() => {
+  if (entry.value.isMessage || entry.value.isReasoning || entry.value.isSubagentMessage) return 'none';
+  if (entry.value.toolGutterMode === 'grep-source') return 'single';
+  if (entry.value.toolGutterMode === 'none') return 'none';
+  return 'single';
+});
+
+const viewerGutterLines = computed(() =>
+  entry.value.toolName === 'grep' || entry.value.toolGutterMode === 'grep-source'
+    ? entry.value.toolGutterLines
+    : undefined,
+);
+
+const viewerGrepPattern = computed(() =>
+  entry.value.toolName === 'grep' || entry.value.toolGutterMode === 'grep-source'
+    ? entry.value.grepPattern
+    : undefined,
+);
+
 function onFocus(event: PointerEvent) {
   props.onFocusEntry(entry.value, event);
 }
@@ -179,6 +217,10 @@ function onFloatingScroll(event: Event) {
 
 function onFloatingWheel(event: WheelEvent) {
   props.onFloatingWheelEntry(entry.value, event);
+}
+
+function onRendered() {
+  props.onRenderedEntry(entry.value);
 }
 </script>
 
@@ -348,124 +390,6 @@ function onFloatingWheel(event: WheelEvent) {
   line-height: var(--term-line-height);
   color: #c9d1d9;
   display: block;
-}
-
-.shiki-host :deep(pre),
-.shiki-host :deep(code) {
-  margin: 0;
-  padding: 0;
-  background: transparent !important;
-  background-color: transparent !important;
-  line-height: inherit !important;
-  font-family: inherit;
-  font-size: inherit;
-  white-space: normal;
-}
-
-.shiki-host :deep(pre.shiki) {
-  background: transparent !important;
-  background-color: transparent !important;
-  color: inherit;
-  display: block;
-  line-height: inherit !important;
-}
-
-.shiki-host :deep(.line),
-.shiki-host :deep(.line)::before {
-  line-height: inherit !important;
-}
-
-.shiki-host :deep(pre) {
-  counter-reset: shiki-line;
-}
-
-.shiki-host :deep(.line) {
-  display: block;
-  padding-left: 3.2em;
-  position: relative;
-  min-height: 1em;
-  color: inherit;
-  white-space: pre;
-}
-
-.shiki-host.wrap-soft :deep(.line) {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.shiki-host :deep(.line:empty)::after {
-  content: ' ';
-}
-
-.shiki-host :deep(.line.line-added) {
-  background: rgba(46, 160, 67, 0.22);
-  box-shadow: inset 3px 0 0 #2ea043;
-  color: #aff5b4;
-}
-
-.shiki-host :deep(.line.line-removed) {
-  background: rgba(248, 81, 73, 0.2);
-  box-shadow: inset 3px 0 0 #f85149;
-  color: #ffdcd7;
-}
-
-.shiki-host :deep(.line.line-hunk) {
-  background: rgba(56, 139, 253, 0.18);
-  color: #c9d1d9;
-}
-
-.shiki-host :deep(.line.line-header) {
-  background: rgba(110, 118, 129, 0.18);
-  color: #c9d1d9;
-}
-
-.shiki-host :deep(.line)::before {
-  counter-increment: shiki-line;
-  content: counter(shiki-line);
-  position: absolute;
-  left: 0;
-  width: 2.6em;
-  text-align: right;
-  color: #8a8a8a;
-}
-
-.shiki-host.no-gutter :deep(.line) {
-  padding-left: 0;
-}
-
-.shiki-host.no-gutter :deep(.line)::before {
-  content: '';
-  counter-increment: none;
-  width: 0;
-}
-
-.shiki-host.grep-gutter :deep(.line)::before {
-  counter-increment: none;
-  content: attr(data-gutter);
-}
-
-.shiki-host :deep(.line .grep-match) {
-  color: #fef08a;
-  background: rgba(234, 179, 8, 0.3);
-  border-radius: 2px;
-  padding: 0 0.08em;
-  font-weight: 700;
-}
-
-.shiki-host :deep(.line .grep-match strong) {
-  font-weight: inherit;
-}
-
-.shiki-host.is-message :deep(.line) {
-  padding-left: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  min-height: var(--message-line-height);
-}
-
-.shiki-host.is-message :deep(.line)::before {
-  content: '';
 }
 
 .term-inner.is-scrolling .shiki-host {

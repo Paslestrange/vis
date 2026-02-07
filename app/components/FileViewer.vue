@@ -66,6 +66,7 @@ async function startRender() {
     code: entry.content,
     lang: entry.toolLang ?? 'text',
     theme: props.theme,
+    gutterMode: entry.toolGutterMode === 'none' ? 'none' : 'single',
   })
     .then((html) => {
       if (current !== state.requestId) return;

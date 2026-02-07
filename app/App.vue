@@ -33,6 +33,7 @@
               :is-status-error="isStatusError"
               :is-thinking="isThinking"
               :is-retry-status="!!retryStatus"
+              :theme="shikiTheme"
               @scroll="handleOutputPanelScroll"
               @wheel="handleOutputPanelWheel"
               @touchmove="handleOutputPanelScroll"
@@ -73,6 +74,7 @@
                 :on-resize-entry="startTermResize"
                 :on-floating-scroll-entry="handleFloatingScroll"
                 :on-floating-wheel-entry="handleFloatingWheel"
+                :on-rendered-entry="handleToolWindowRendered"
                 :is-permission-submitting="isPermissionSubmitting"
                 :get-permission-error="getPermissionError"
                 :on-permission-reply="handlePermissionReply"
@@ -144,7 +146,7 @@
 
 <script lang="ts" setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
-import { bundledLanguages, bundledThemes, createHighlighter } from 'shiki/bundle/web';
+import { bundledThemes } from 'shiki/bundle/web';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import InputPanel from './components/InputPanel.vue';
@@ -197,29 +199,6 @@ const MAIN_REASONING_TITLE = 'Reasoning';
 const REASONING_CLOSE_DELAY_MS = 3000;
 const SHELL_PTY_STORAGE_KEY = 'opencode.shellPtys';
 const COMPOSER_DRAFT_STORAGE_KEY = 'opencode.composerDrafts.v1';
-const SHIKI_LANGS = [
-  'text',
-  'diff',
-  'json',
-  'markdown',
-  'html',
-  'css',
-  'scss',
-  'yaml',
-  'shellscript',
-  'sql',
-  'typescript',
-  'tsx',
-  'javascript',
-  'jsx',
-  'vue',
-  'python',
-  'java',
-  'php',
-];
-
-const SHIKI_DYNAMIC_TOOL_LANGS = new Set(['read', 'write', 'webfetch', 'websearch']);
-
 const ATTACHMENT_MIME_ALLOWLIST = new Set([
   'image/png',
   'image/jpeg',
@@ -279,6 +258,11 @@ type FileReadEntry = {
   permissionRequest?: PermissionRequest;
   questionRequest?: QuestionRequest;
   isBinary?: boolean;
+  isLoading?: boolean;
+  isDiff?: boolean;
+  diffCode?: string;
+  diffAfter?: string;
+  diffLang?: string;
 };
 
 type TodoItem = {
@@ -1574,96 +1558,6 @@ function pickShikiTheme(names: string[]) {
   return darkMatch ?? names[0];
 }
 
-function resolveShikiLanguage(requested: string, loaded: string[]) {
-  if (requested === 'shellscript') {
-    if (loaded.includes('bash')) return 'bash';
-    if (loaded.includes('shell')) return 'shell';
-    if (loaded.includes('sh')) return 'sh';
-  }
-  if (requested === 'bash' && loaded.includes('shellscript')) return 'shellscript';
-  if (loaded.includes(requested)) return requested;
-  return loaded.includes('text') ? 'text' : (loaded[0] ?? 'text');
-}
-
-function getShikiLanguageLoadCandidates(requested: string) {
-  switch (requested) {
-    case 'shellscript':
-      return ['shellscript', 'bash', 'shell', 'sh'];
-    default:
-      return [requested];
-  }
-}
-
-function rerenderShikiEntries() {
-  queue.value = queue.value.map((entry) => {
-    if (entry.isShell || entry.isPermission || entry.isQuestion) return entry;
-    const text = `${entry.header}${entry.content}`;
-    const lang =
-      entry.toolLang ??
-      (entry.isMessage
-        ? 'markdown'
-        : detectDiffLike(entry.content, entry.path)
-          ? 'diff'
-          : guessLanguage(entry.path));
-    return {
-      ...entry,
-      html: buildEntryHtml(text, lang, {
-        toolName: entry.toolName,
-        grepPattern: entry.grepPattern,
-        toolGutterMode: entry.toolGutterMode,
-        toolGutterLines: entry.toolGutterLines,
-      }),
-    };
-  });
-}
-
-async function ensureShikiLanguageLoaded(lang: string, toolName?: string) {
-  if (!toolName || !SHIKI_DYNAMIC_TOOL_LANGS.has(toolName)) return;
-  if (!highlighter.value) return;
-  if (!lang || lang === 'text' || lang === 'diff') return;
-
-  const candidates = getShikiLanguageLoadCandidates(lang);
-  const key = candidates[0] ?? lang;
-  const highlighterInstance = highlighter.value;
-  const getLoadedLanguages = () =>
-    typeof highlighterInstance.getLoadedLanguages === 'function'
-      ? highlighterInstance.getLoadedLanguages()
-      : [];
-
-  if (candidates.some((candidate) => getLoadedLanguages().includes(candidate))) return;
-  if (pendingShikiLangLoads.has(key)) return;
-
-  pendingShikiLangLoads.add(key);
-  let loadedAny = false;
-  try {
-    for (const candidate of candidates) {
-      if (getLoadedLanguages().includes(candidate)) {
-        loadedAny = true;
-        break;
-      }
-      try {
-        await highlighterInstance.loadLanguage(candidate);
-        loadedAny = true;
-        break;
-      } catch (error) {
-        log('shiki language load failed', { lang: candidate, error: String(error) });
-      }
-    }
-  } finally {
-    pendingShikiLangLoads.delete(key);
-  }
-
-  if (loadedAny) rerenderShikiEntries();
-}
-
-function requestShikiLanguageLoad(lang: string, toolName?: string) {
-  void ensureShikiLanguageLoaded(lang, toolName);
-}
-
-function isDarkThemeName(name: string) {
-  return /dark|night|nord|dracula|monokai|dimmed/i.test(name);
-}
-
 function getEntryTitle(entry: FileReadEntry) {
   const prefix = getEntryPrefix(entry);
   const sourceModel = prefix === 'MESSAGE' ? entry.messageModel?.trim() : '';
@@ -1996,6 +1890,15 @@ function handleFloatingWheel(entry: FileReadEntry, event: WheelEvent) {
   });
 }
 
+function handleToolWindowRendered(entry: FileReadEntry) {
+  if (entry.isReasoning || entry.isSubagentMessage) {
+    if (entry.messageKey) scheduleReasoningScroll(entry.messageKey);
+    return;
+  }
+  if (!entry.toolKey) return;
+  scheduleToolScrollAnimation(entry.toolKey);
+}
+
 function scheduleToolScrollAnimation(toolKey: string) {
   const existing = pendingToolScrollFrames.get(toolKey);
   if (existing !== undefined) {
@@ -2011,7 +1914,7 @@ function scheduleToolScrollAnimation(toolKey: string) {
         `[data-tool-key="${toolKey}"] .term-inner`,
       ) as HTMLElement | null;
       if (!term) return;
-      const host = term.querySelector('.shiki-host') as HTMLElement | null;
+      const host = term.querySelector('.shiki-host, .diff-viewer, .file-viewer-body') as HTMLElement | null;
       if (!host) return;
 
       const distance = Math.max(0, host.scrollHeight - term.clientHeight);
@@ -2031,21 +1934,40 @@ function scheduleToolScrollAnimation(toolKey: string) {
       }
 
       const duration = distance / TOOL_SCROLL_SPEED_PX_S;
-      if (
-        entry.scroll &&
-        Math.abs((entry.scrollDistance ?? 0) - distance) < 1 &&
-        Math.abs((entry.scrollDuration ?? 0) - duration) < 0.01
-      ) {
+      const sameDistance = Math.abs((entry.scrollDistance ?? 0) - distance) < 1;
+      const sameDuration = Math.abs((entry.scrollDuration ?? 0) - duration) < 0.01;
+      if (entry.scroll && sameDistance && sameDuration) return;
+
+      const applyScrollState = () => {
+        const currentIndex = queue.value.findIndex((item) => item.toolKey === toolKey);
+        if (currentIndex < 0) return;
+        const currentEntry = queue.value[currentIndex];
+        queue.value.splice(currentIndex, 1, {
+          ...currentEntry,
+          expiresAt: currentEntry.expiresAt,
+          scroll: true,
+          scrollDistance: distance,
+          scrollDuration: duration,
+        });
+      };
+
+      if (entry.scroll) {
+        queue.value.splice(index, 1, {
+          ...entry,
+          expiresAt: entry.expiresAt,
+          scroll: false,
+          scrollDistance: distance,
+          scrollDuration: duration,
+        });
+        nextTick(() => {
+          requestAnimationFrame(() => {
+            applyScrollState();
+          });
+        });
         return;
       }
 
-      queue.value.splice(index, 1, {
-        ...entry,
-        expiresAt: entry.expiresAt,
-        scroll: true,
-        scrollDistance: distance,
-        scrollDuration: duration,
-      });
+      applyScrollState();
     });
     pendingToolScrollFrames.set(toolKey, frame);
   });
@@ -3212,7 +3134,6 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
       const scrollDuration =
         overflowLines > 0 ? Math.min(0.25, Math.max(0.08, overflowLines * 0.01)) : 0;
       const expiresAt = isSubagentMessage ? getSubagentExpiry(sessionId) : time + 1000 * 60 * 30;
-      const html = buildHtml(text, 'markdown');
       const randomPosition = isSubagentMessage ? getRandomWindowPosition() : { x: 0, y: 0 };
       queue.value.push({
         time,
@@ -3232,7 +3153,7 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
         scroll: overflowLines > 0,
         scrollDistance,
         scrollDuration,
-        html,
+        html: '',
         attachments: entry.attachments,
         isWrite: false,
         isMessage: true,
@@ -4118,8 +4039,6 @@ function log(...args: any) {
 }
 
 const shikiTheme = ref('github-dark');
-const highlighter = shallowRef<Awaited<ReturnType<typeof createHighlighter>> | null>(null);
-const pendingShikiLangLoads = new Set<string>();
 setInterval(() => {
   const now = Date.now();
   messageIndexById.clear();
@@ -4473,57 +4392,6 @@ function parseGrepOutputWithSourceLines(output: string) {
   };
 }
 
-function buildGrepMatcher(pattern?: string) {
-  if (!pattern?.trim()) return null;
-  try {
-    return new RegExp(pattern, 'g');
-  } catch {
-    return null;
-  }
-}
-
-function highlightGrepMatches(line: string, matcher: RegExp | null) {
-  if (!matcher) return escapeHtml(line);
-  matcher.lastIndex = 0;
-  let html = '';
-  let cursor = 0;
-  while (cursor <= line.length) {
-    const match = matcher.exec(line);
-    if (!match) break;
-    const index = match.index;
-    const value = match[0] ?? '';
-    if (index > cursor) {
-      html += escapeHtml(line.slice(cursor, index));
-    }
-    if (!value) {
-      if (index >= line.length) break;
-      html += escapeHtml(line[index] ?? '');
-      cursor = index + 1;
-      matcher.lastIndex = cursor;
-      continue;
-    }
-    html += `<span class="grep-match"><strong>${escapeHtml(value)}</strong></span>`;
-    cursor = index + value.length;
-    if (!matcher.global) break;
-    if (matcher.lastIndex <= index) matcher.lastIndex = index + value.length;
-  }
-  if (cursor < line.length) html += escapeHtml(line.slice(cursor));
-  return html;
-}
-
-function renderGrepHtml(text: string, pattern?: string, gutterLines?: string[]) {
-  const matcher = buildGrepMatcher(pattern);
-  const lines = text.split('\n');
-  const htmlLines = lines
-    .map((line, index) => {
-      const content = highlightGrepMatches(line, matcher);
-      const gutter = gutterLines?.[index] ?? '';
-      return `<span class="line" data-gutter="${escapeHtml(gutter)}">${content}</span>`;
-    })
-    .join('\n');
-  return `<pre class="shiki"><code>${htmlLines}</code></pre>`;
-}
-
 function formatGlobToolTitle(input: Record<string, unknown> | undefined) {
   const pattern = typeof input?.pattern === 'string' ? input.pattern.trim() : '';
   const path = typeof input?.path === 'string' ? input.path.trim() : '';
@@ -4713,15 +4581,6 @@ function parsePatchTextBlocks(patchText: string) {
 
   pushCurrent();
   return blocks;
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 function normalizeTodoItem(value: unknown): TodoItem | null {
@@ -5269,101 +5128,6 @@ function detectDiffLike(content: string, path?: string) {
   );
 }
 
-
-function decorateDiffHtml(html: string, source: string) {
-  const sourceLines = source.split('\n');
-  const htmlLines = html.split('\n');
-  let lineIndex = 0;
-  return htmlLines
-    .map((line) => {
-      if (!line.includes('class="line"')) return line;
-      const sourceLine = sourceLines[lineIndex] ?? '';
-      lineIndex += 1;
-      const isHeader =
-        sourceLine.startsWith('diff ') ||
-        sourceLine.startsWith('index ') ||
-        sourceLine.startsWith('---') ||
-        sourceLine.startsWith('+++') ||
-        sourceLine.startsWith('***');
-      const isHunk = sourceLine.startsWith('@@');
-      const isAdded = sourceLine.startsWith('+') && !sourceLine.startsWith('+++');
-      const isRemoved = sourceLine.startsWith('-') && !sourceLine.startsWith('---');
-      const className = isHeader
-        ? 'line line-header'
-        : isHunk
-          ? 'line line-hunk'
-          : isAdded
-            ? 'line line-added'
-            : isRemoved
-              ? 'line line-removed'
-              : 'line';
-      return line.replace('class="line"', `class="${className}"`);
-    })
-    .join('\n');
-}
-
-function buildHtml(text: string, lang: string) {
-  if (highlighter.value) {
-    const highlighterInstance = highlighter.value;
-    const loadedLanguages =
-      typeof highlighterInstance.getLoadedLanguages === 'function'
-        ? highlighterInstance.getLoadedLanguages()
-        : [];
-    const resolvedLang = resolveShikiLanguage(lang, loadedLanguages);
-    if (!isDarkThemeName(shikiTheme.value) && lang !== 'diff') {
-      return `<pre class="shiki"><code>${escapeHtml(text)}</code></pre>`;
-    }
-    try {
-        if (lang === 'diff' && loadedLanguages.includes('diff')) {
-          const html = highlighterInstance.codeToHtml(text, {
-            lang: 'diff',
-            theme: shikiTheme.value,
-          });
-          return decorateDiffHtml(html, text);
-        }
-      const html = highlighterInstance.codeToHtml(text, {
-        lang: resolvedLang,
-        theme: shikiTheme.value,
-      });
-      return html;
-    } catch (error) {
-      log('shiki render failed', { lang: resolvedLang, error: String(error) });
-      return `<pre class="shiki"><code>${escapeHtml(text)}</code></pre>`;
-    }
-  }
-
-  return `<pre class="shiki"><code>${escapeHtml(text)}</code></pre>`;
-}
-
-function applyToolLineGutters(html: string, gutterLines?: string[]) {
-  if (!Array.isArray(gutterLines) || gutterLines.length === 0) return html;
-  let index = 0;
-  return html.replace(/<span class="line([^"]*)">/g, (full, suffix) => {
-    const gutter = gutterLines[index] ?? '';
-    index += 1;
-    return `<span class="line${suffix}" data-gutter="${escapeHtml(gutter)}">`;
-  });
-}
-
-function buildEntryHtml(
-  text: string,
-  lang: string,
-  options?: {
-    toolName?: string;
-    grepPattern?: string;
-    toolGutterMode?: FileReadEntry['toolGutterMode'];
-    toolGutterLines?: string[];
-  },
-) {
-  if (options?.toolName === 'grep') {
-    return renderGrepHtml(text, options.grepPattern, options.toolGutterLines);
-  }
-  const html = buildHtml(text, lang);
-  if (options?.toolGutterMode === 'grep-source') {
-    return applyToolLineGutters(html, options.toolGutterLines);
-  }
-  return html;
-}
 
 function countWrappedLines(text: string, columns: number) {
   if (columns <= 0) return text.split('\n').length;
@@ -7099,7 +6863,6 @@ function upsertToolEntry(
         ? `# ${eventType}\n\n`
         : '';
   const time = Date.now();
-  const text = `${header}${entry.content}`;
   const scrollDistance = 0;
   const scrollDuration = 0;
   const defaultExpiry = time + Math.ceil((scrollDuration || 0) * 1000 + TOOL_SCROLL_HOLD_MS);
@@ -7150,10 +6913,8 @@ function upsertToolEntry(
           entry.lang ??
           existing.toolLang ??
           (detectDiffLike(nextContent, nextPath) ? 'diff' : guessLanguage(nextPath, eventType));
-        requestShikiLanguageLoad(nextLang, entry.toolName ?? existing.toolName);
         const toolKey =
           existing.toolKey ?? entry.callId ?? `${nextPath ?? entry.toolName ?? 'tool'}:${time}`;
-        const nextText = `${nextHeader}${nextContent}`;
         const nextExpiresAt = resolveExpiry(entry.toolStatus, time, defaultExpiry);
         queue.value.splice(existingIndex, 1, {
           ...existing,
@@ -7164,26 +6925,21 @@ function upsertToolEntry(
           toolKey,
           content: nextContent,
           scroll: false,
-            scrollDistance,
-            scrollDuration,
-            html: buildEntryHtml(nextText, nextLang, {
-              toolName: entry.toolName ?? existing.toolName,
-              grepPattern: nextGrepPattern,
-              toolGutterMode: nextGutterMode,
-              toolGutterLines: nextGutterLines,
-            }),
-            isWrite: entry.isWrite,
-            isMessage: false,
-            callId: entry.callId,
-            toolStatus: entry.toolStatus,
-            toolName: entry.toolName,
-            toolTitle: entry.toolTitle ?? existing.toolTitle,
-            toolLang: nextLang,
-            grepPattern: nextGrepPattern,
-            toolWrapMode: nextWrapMode,
-            toolGutterMode: nextGutterMode,
-            toolGutterLines: nextGutterLines,
-          });
+          scrollDistance,
+          scrollDuration,
+          html: '',
+          isWrite: entry.isWrite,
+          isMessage: false,
+          callId: entry.callId,
+          toolStatus: entry.toolStatus,
+          toolName: entry.toolName,
+          toolTitle: entry.toolTitle ?? existing.toolTitle,
+          toolLang: nextLang,
+          grepPattern: nextGrepPattern,
+          toolWrapMode: nextWrapMode,
+          toolGutterMode: nextGutterMode,
+          toolGutterLines: nextGutterLines,
+        });
         toolIndexByCallId.set(entry.callId, existingIndex);
         scheduleToolScrollAnimation(toolKey);
         return;
@@ -7192,7 +6948,6 @@ function upsertToolEntry(
   }
 
   const toolKey = entry.callId ?? `${entry.path ?? entry.toolName ?? 'tool'}:${time}`;
-  requestShikiLanguageLoad(lang, entry.toolName);
   const randomPosition = getRandomWindowPosition();
   queue.value.push({
     time,
@@ -7206,12 +6961,7 @@ function upsertToolEntry(
     scroll: false,
     scrollDistance,
     scrollDuration,
-    html: buildEntryHtml(text, lang, {
-      toolName: entry.toolName,
-      grepPattern: entry.grepPattern,
-      toolGutterMode: entry.gutterMode,
-      toolGutterLines: entry.gutterLines,
-    }),
+    html: '',
     isWrite: entry.isWrite,
     isMessage: false,
     callId: entry.callId,
@@ -7499,7 +7249,6 @@ function connect() {
             const scrollDistance = Math.max(0, overflowLines * lineHeight);
             const scrollDuration =
               overflowLines > 0 ? Math.min(0.25, Math.max(0.08, overflowLines * 0.01)) : 0;
-            const html = buildHtml(text, 'markdown');
             const attachments = messageAttachmentsById.get(attachmentKey) ?? [];
             const isUserMessage = userMessageIds.has(attachmentUpdate.messageId);
             const randomPosition = isSubagentMessage ? getRandomWindowPosition() : { x: 0, y: 0 };
@@ -7514,7 +7263,7 @@ function connect() {
               scroll: !isSubagentMessage && overflowLines > 0,
               scrollDistance: isSubagentMessage ? 0 : scrollDistance,
               scrollDuration: isSubagentMessage ? 0 : scrollDuration,
-              html,
+              html: '',
               attachments,
               isWrite: false,
               isMessage: true,
@@ -7640,7 +7389,6 @@ function connect() {
         : isSubagentMessage
           ? getSubagentExpiry(sessionId)
           : time + 1000 * 60 * 30;
-      const html = buildHtml(text, 'markdown');
       const attachments = messageAttachmentsById.get(messageKey);
 
       let existingIndex = messageIndexById.get(messageKey);
@@ -7695,7 +7443,7 @@ function connect() {
             scroll: !isFloatingMessage && nextOverflowLines > 0,
             scrollDistance: isFloatingMessage ? 0 : nextScrollDistance,
             scrollDuration: isFloatingMessage ? 0 : nextScrollDuration,
-            html: buildHtml(nextText, 'markdown'),
+            html: '',
             attachments: nextAttachments,
             isReasoning,
             messageKey,
@@ -7729,7 +7477,7 @@ function connect() {
         scroll: !isFloatingMessage && overflowLines > 0,
         scrollDistance: isFloatingMessage ? 0 : scrollDistance,
         scrollDuration: isFloatingMessage ? 0 : scrollDuration,
-        html,
+        html: '',
         attachments,
         isWrite: false,
         isMessage: true,
@@ -7791,29 +7539,6 @@ onMounted(() => {
   const availableThemes = getBundledThemeNames();
   const chosenTheme = pickShikiTheme(availableThemes);
   if (chosenTheme) shikiTheme.value = chosenTheme;
-  const languageSet = new Set<string>();
-  if (Array.isArray(bundledLanguages)) {
-    bundledLanguages.forEach((lang) => {
-      if (typeof lang === 'string') languageSet.add(lang);
-      else if (lang && typeof lang === 'object' && 'id' in lang) languageSet.add(String(lang.id));
-    });
-  } else {
-    Object.keys(bundledLanguages).forEach((lang) => languageSet.add(lang));
-  }
-  const availableLangs = SHIKI_LANGS.filter((lang) => languageSet.has(lang));
-  if (languageSet.has('diff') && !availableLangs.includes('diff')) availableLangs.push('diff');
-  if (availableLangs.length === 0) availableLangs.push('text');
-  createHighlighter({
-    themes: [shikiTheme.value],
-    langs: availableLangs,
-  })
-    .then((instance) => {
-      highlighter.value = instance;
-      rerenderShikiEntries();
-    })
-    .catch((err) => {
-      log('shiki init failed', err);
-    });
   window.addEventListener('pointermove', handlePointerMove);
   window.addEventListener('pointerup', handlePointerUp);
   window.addEventListener('resize', handleWindowResize);

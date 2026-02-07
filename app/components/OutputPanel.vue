@@ -66,6 +66,12 @@
           >
             {{ formatMessageMeta(q) }}
           </div>
+          <div
+            v-if="formatMessageUsage(q)"
+            class="output-entry-usage"
+          >
+            {{ formatMessageUsage(q) }}
+          </div>
         </div>
         <button
           v-show="!isFollowing"
@@ -110,6 +116,21 @@ type FileReadEntry = {
   role?: 'user' | 'assistant';
   messageAgent?: string;
   messageModel?: string;
+  messageProviderId?: string;
+  messageModelId?: string;
+  messageUsage?: {
+    tokens: {
+      input: number;
+      output: number;
+      reasoning: number;
+      cache?: {
+        read: number;
+        write: number;
+      };
+    };
+    cost?: number;
+    contextPercent?: number | null;
+  };
   messageVariant?: string;
   messageTime?: number;
   toolStatus?: string;
@@ -163,6 +184,37 @@ function formatMessageMeta(entry: FileReadEntry) {
   const base = baseParts.join(' ');
   const timestamp = formatMessageTime(entry.messageTime);
   return [base, timestamp].filter((part) => part).join(' • ');
+}
+
+function formatMessageUsage(entry: FileReadEntry) {
+  if (!entry.messageUsage) return '';
+  if (entry.role !== 'assistant') return '';
+  const tokens = entry.messageUsage.tokens;
+  if (!tokens) return '';
+  const input = formatCompactCount(tokens.input);
+  const output = formatCompactCount(tokens.output);
+  const reasoning = formatCompactCount(tokens.reasoning);
+  if (input === '0' && output === '0' && reasoning === '0') return '';
+  const cost = typeof entry.messageUsage.cost === 'number'
+    ? formatCost(entry.messageUsage.cost)
+    : '$--';
+  return `In ${input} / Out ${output} / Reason ${reasoning} / ${cost}`;
+}
+
+function formatCompactCount(value: number) {
+  if (!Number.isFinite(value)) return '0';
+  if (value <= 0) return '0';
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`;
+  if (value >= 10_000) return `${Math.round(value / 1_000)}k`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return `${Math.round(value)}`;
+}
+
+function formatCost(value: number) {
+  if (!Number.isFinite(value)) return '$--';
+  if (value === 0) return '$0.000';
+  if (value < 0.01) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(3)}`;
 }
 
 function formatMessageAgent(entry: FileReadEntry) {
@@ -348,6 +400,16 @@ defineExpose({ panelEl });
   right: 10px;
   font-size: 10px;
   color: rgba(191, 219, 254, 0.9);
+  text-align: right;
+}
+
+.output-entry-usage {
+  position: absolute;
+  right: 10px;
+  bottom: 22px;
+  font-size: 10px;
+  color: rgba(148, 163, 184, 0.9);
+  text-align: right;
 }
 
 .output-panel-shell .shiki-host {
@@ -417,6 +479,8 @@ defineExpose({ panelEl });
   transform: translateX(-50%);
   width: 36px;
   height: 36px;
+  aspect-ratio: 1 / 1;
+  box-sizing: border-box;
   border-radius: 999px;
   border: 1px solid #334155;
   background: rgba(15, 23, 42, 0.92);

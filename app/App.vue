@@ -252,6 +252,9 @@ type FileReadEntry = {
   messageKey?: string;
   messageAgent?: string;
   messageModel?: string;
+  messageProviderId?: string;
+  messageModelId?: string;
+  messageUsage?: MessageUsage;
   messageVariant?: string;
   messageTime?: number;
   callId?: string;
@@ -470,6 +473,7 @@ const userMessageTimeById = new Map<string, number>();
 const messageContentById = new Map<string, string>();
 const messagePartsById = new Map<string, Map<string, string>>();
 const messagePartOrderById = new Map<string, string[]>();
+const messageUsageByKey = new Map<string, MessageUsage>();
 const recentUserInputs: { text: string; time: number }[] = [];
 const lastUserMessageIdByComposerContext = new Map<string, string>();
 const historyLoadedComposerContexts = new Set<string>();
@@ -535,6 +539,11 @@ type ProviderModel = {
   name?: string;
   providerID?: string;
   variants?: Record<string, unknown>;
+  limit?: {
+    context?: number;
+    input?: number;
+    output?: number;
+  };
 };
 
 type ProviderInfo = {
@@ -2393,6 +2402,7 @@ async function fetchProviders() {
       selectedThinking.value = thinkingOptions.value[0];
       log('providers thinking set', selectedThinking.value);
     }
+    refreshMessageUsageContextPercent();
     providersLoaded.value = true;
     log('providers fetch done');
   } catch (error) {
@@ -2526,6 +2536,24 @@ type UserMessageDisplay = {
   variant?: string;
 };
 
+type MessageTokens = {
+  input: number;
+  output: number;
+  reasoning: number;
+  cache?: {
+    read: number;
+    write: number;
+  };
+};
+
+type MessageUsage = {
+  tokens: MessageTokens;
+  cost?: number;
+  providerId?: string;
+  modelId?: string;
+  contextPercent?: number | null;
+};
+
 function extractMessageTime(info?: Record<string, unknown>): number | undefined {
   if (!info) return undefined;
   const time = info.time as Record<string, unknown> | undefined;
@@ -2568,6 +2596,177 @@ function formatUserMessageModel(meta: UserMessageMeta | null): string | undefine
   return modelId || providerId || undefined;
 }
 
+function resolveProviderModelLimit(providerId?: string, modelId?: string) {
+  const normalizedProvider = providerId?.trim() ?? '';
+  const normalizedModel = modelId?.trim() ?? '';
+  if (!normalizedProvider || !normalizedModel) return null;
+  const provider = providers.value.find((item) => item.id === normalizedProvider);
+  if (!provider) return null;
+  const model = provider.models?.[normalizedModel];
+  if (!model || !model.limit) return null;
+  return model.limit;
+}
+
+function computeContextPercent(tokens: MessageTokens, providerId?: string, modelId?: string) {
+  const limit = resolveProviderModelLimit(providerId, modelId);
+  const contextLimit = limit?.context;
+  if (!contextLimit || !Number.isFinite(contextLimit) || contextLimit <= 0) return null;
+  const total = tokens.input + tokens.output + tokens.reasoning;
+  if (!Number.isFinite(total) || total <= 0) return 0;
+  return Math.round((total / contextLimit) * 100);
+}
+
+function parseMessageTokens(value: unknown): MessageTokens | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const input = typeof record.input === 'number' ? record.input : 0;
+  const output = typeof record.output === 'number' ? record.output : 0;
+  const reasoning = typeof record.reasoning === 'number' ? record.reasoning : 0;
+  const cache = record.cache && typeof record.cache === 'object' ? (record.cache as Record<string, unknown>) : null;
+  const cacheRead = cache && typeof cache.read === 'number' ? cache.read : 0;
+  const cacheWrite = cache && typeof cache.write === 'number' ? cache.write : 0;
+  if (!Number.isFinite(input) && !Number.isFinite(output) && !Number.isFinite(reasoning)) return null;
+  return {
+    input: Number.isFinite(input) ? input : 0,
+    output: Number.isFinite(output) ? output : 0,
+    reasoning: Number.isFinite(reasoning) ? reasoning : 0,
+    cache: {
+      read: Number.isFinite(cacheRead) ? cacheRead : 0,
+      write: Number.isFinite(cacheWrite) ? cacheWrite : 0,
+    },
+  };
+}
+
+function resolveMessageUsage(payload: unknown, eventType: string): MessageUsage | null {
+  if (!payload || typeof payload !== 'object') return null;
+  if (!MESSAGE_EVENT_TYPES.has(eventType)) return null;
+  const record = payload as Record<string, unknown>;
+  const nestedPayload =
+    record.payload && typeof record.payload === 'object'
+      ? (record.payload as Record<string, unknown>)
+      : undefined;
+  const properties =
+    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
+      ? (nestedPayload.properties as Record<string, unknown>)
+      : undefined) ??
+    (record.properties && typeof record.properties === 'object'
+      ? (record.properties as Record<string, unknown>)
+      : undefined);
+  const info =
+    properties?.info && typeof properties.info === 'object'
+      ? (properties.info as Record<string, unknown>)
+      : undefined;
+  const part =
+    properties?.part && typeof properties.part === 'object'
+      ? (properties.part as Record<string, unknown>)
+      : undefined;
+  const partType = typeof part?.type === 'string' ? part.type : undefined;
+  const isStepFinish = partType === 'step-finish';
+  const tokensSource = isStepFinish ? part?.tokens : info?.tokens;
+  const tokens = parseMessageTokens(tokensSource);
+  if (!tokens) return null;
+  const modelInfo =
+    info?.model && typeof info.model === 'object'
+      ? (info.model as Record<string, unknown>)
+      : undefined;
+  const providerId =
+    typeof info?.providerID === 'string'
+      ? info.providerID
+      : typeof modelInfo?.providerID === 'string'
+        ? (modelInfo.providerID as string)
+        : undefined;
+  const modelId =
+    typeof info?.modelID === 'string'
+      ? info.modelID
+      : typeof modelInfo?.modelID === 'string'
+        ? (modelInfo.modelID as string)
+        : undefined;
+  const costSource = isStepFinish ? part?.cost : info?.cost;
+  const cost = typeof costSource === 'number' ? costSource : undefined;
+  const contextPercent = computeContextPercent(tokens, providerId, modelId);
+  return {
+    tokens,
+    cost,
+    providerId: providerId?.trim() || undefined,
+    modelId: modelId?.trim() || undefined,
+    contextPercent,
+  };
+}
+
+function resolveMessageUsageFromInfo(info?: Record<string, unknown>): MessageUsage | null {
+  if (!info) return null;
+  const tokens = parseMessageTokens(info.tokens);
+  if (!tokens) return null;
+  const modelInfo =
+    info.model && typeof info.model === 'object'
+      ? (info.model as Record<string, unknown>)
+      : undefined;
+  const providerId =
+    typeof info.providerID === 'string'
+      ? info.providerID
+      : typeof modelInfo?.providerID === 'string'
+        ? (modelInfo.providerID as string)
+        : undefined;
+  const modelId =
+    typeof info.modelID === 'string'
+      ? info.modelID
+      : typeof modelInfo?.modelID === 'string'
+        ? (modelInfo.modelID as string)
+        : undefined;
+  const cost = typeof info.cost === 'number' ? info.cost : undefined;
+  return {
+    tokens,
+    cost,
+    providerId: providerId?.trim() || undefined,
+    modelId: modelId?.trim() || undefined,
+    contextPercent: computeContextPercent(tokens, providerId, modelId),
+  };
+}
+
+function extractUsageUpdate(payload: unknown, eventType: string) {
+  if (!payload || typeof payload !== 'object') return null;
+  if (!MESSAGE_EVENT_TYPES.has(eventType)) return null;
+  const record = payload as Record<string, unknown>;
+  const nestedPayload =
+    record.payload && typeof record.payload === 'object'
+      ? (record.payload as Record<string, unknown>)
+      : undefined;
+  const properties =
+    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
+      ? (nestedPayload.properties as Record<string, unknown>)
+      : undefined) ??
+    (record.properties && typeof record.properties === 'object'
+      ? (record.properties as Record<string, unknown>)
+      : undefined);
+  const info =
+    properties?.info && typeof properties.info === 'object'
+      ? (properties.info as Record<string, unknown>)
+      : undefined;
+  const part =
+    properties?.part && typeof properties.part === 'object'
+      ? (properties.part as Record<string, unknown>)
+      : undefined;
+  const partType = typeof part?.type === 'string' ? part.type : undefined;
+  const isMessageUpdated = String(eventType).toLowerCase().includes('message.updated');
+  if (partType && partType !== 'step-finish' && !isMessageUpdated) return null;
+  const usage = resolveMessageUsage(payload, eventType);
+  if (!usage) return null;
+  const messageId =
+    (part?.messageID as string | undefined) ??
+    (info?.id as string | undefined) ??
+    (info?.messageId as string | undefined) ??
+    (properties?.messageId as string | undefined) ??
+    (properties?.id as string | undefined) ??
+    (record.messageId as string | undefined) ??
+    (record.id as string | undefined);
+  const sessionId =
+    (typeof part?.sessionID === 'string' ? (part.sessionID as string) : undefined) ??
+    (typeof info?.sessionID === 'string' ? (info.sessionID as string) : undefined) ??
+    extractSessionId(payload);
+  if (!messageId) return null;
+  return { messageId, sessionId, usage };
+}
+
 function resolveUserMessageDisplay(meta: UserMessageMeta | null): UserMessageDisplay | null {
   if (!meta) return null;
   const model = formatUserMessageModel(meta);
@@ -2578,6 +2777,71 @@ function resolveUserMessageDisplay(meta: UserMessageMeta | null): UserMessageDis
     model,
     variant: meta.variant,
   };
+}
+
+function applyMessageUsageToQueue(messageId: string, sessionId: string | undefined, usage: MessageUsage) {
+  const messageKey = sessionId ? buildMessageKey(messageId, sessionId) : undefined;
+  if (messageKey) messageUsageByKey.set(messageKey, usage);
+  const index = messageKey ? messageIndexById.get(messageKey) : undefined;
+  const updateEntry = (entryIndex: number) => {
+    const existing = queue.value[entryIndex];
+    if (!existing || !existing.isMessage) return;
+    const providerId = usage.providerId ?? existing.messageProviderId;
+    const modelId = usage.modelId ?? existing.messageModelId;
+    const contextPercent =
+      usage.contextPercent ?? computeContextPercent(usage.tokens, providerId, modelId);
+    queue.value.splice(entryIndex, 1, {
+      ...existing,
+      messageProviderId: providerId,
+      messageModelId: modelId,
+      messageUsage: {
+        ...usage,
+        providerId: providerId ?? undefined,
+        modelId: modelId ?? undefined,
+        contextPercent,
+      },
+    });
+  };
+  if (index !== undefined) {
+    updateEntry(index);
+    return;
+  }
+  queue.value.forEach((entry, entryIndex) => {
+    if (!entry.isMessage) return;
+    if (entry.messageId !== messageId) return;
+    if (sessionId && entry.sessionId && entry.sessionId !== sessionId) return;
+    updateEntry(entryIndex);
+  });
+}
+
+function refreshMessageUsageContextPercent() {
+  messageUsageByKey.forEach((usage, messageKey) => {
+    const providerId = usage.providerId;
+    const modelId = usage.modelId;
+    const contextPercent = computeContextPercent(usage.tokens, providerId, modelId);
+    messageUsageByKey.set(messageKey, {
+      ...usage,
+      contextPercent,
+    });
+  });
+  queue.value.forEach((entry, index) => {
+    if (!entry.isMessage || !entry.messageUsage || !entry.messageKey) return;
+    const usage = messageUsageByKey.get(entry.messageKey) ?? entry.messageUsage;
+    const providerId = usage.providerId ?? entry.messageProviderId;
+    const modelId = usage.modelId ?? entry.messageModelId;
+    const contextPercent = computeContextPercent(usage.tokens, providerId, modelId);
+    queue.value.splice(index, 1, {
+      ...entry,
+      messageProviderId: providerId,
+      messageModelId: modelId,
+      messageUsage: {
+        ...usage,
+        providerId: providerId ?? undefined,
+        modelId: modelId ?? undefined,
+        contextPercent,
+      },
+    });
+  });
 }
 
 function storeUserMessageMeta(messageId: string | undefined, meta: UserMessageMeta | null) {
@@ -2734,9 +2998,10 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
         const id = typeof info?.id === 'string' ? info.id : undefined;
         const role = typeof info?.role === 'string' ? info.role : undefined;
         const meta = parseUserMessageMeta(info);
+        const usage = resolveMessageUsageFromInfo(info);
         const messageTime = extractMessageTime(info);
         if (!id) return null;
-        return { id, role, text, attachments, meta, messageTime };
+        return { id, role, text, attachments, meta, usage, messageTime };
       })
       .filter(
         (entry): entry is {
@@ -2745,6 +3010,7 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
           text: string;
           attachments: MessageAttachment[];
           meta: UserMessageMeta | null;
+          usage: MessageUsage | null;
           messageTime?: number;
         } => Boolean(entry),
       );
@@ -2757,6 +3023,19 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
       const displayMeta = resolveUserMessageDisplay(resolvedMeta);
       storeUserMessageTime(entry.id, entry.messageTime);
       const resolvedTime = resolveUserMessageTimeForMessage(entry.id, undefined, entry.messageTime);
+      const usageProviderId = entry.usage?.providerId ?? resolvedMeta?.providerId;
+      const usageModelId = entry.usage?.modelId ?? resolvedMeta?.modelId;
+      const historyUsage = entry.usage
+        ? {
+            ...entry.usage,
+            providerId: usageProviderId,
+            modelId: usageModelId,
+            contextPercent:
+              entry.usage.contextPercent ??
+              computeContextPercent(entry.usage.tokens, usageProviderId, usageModelId),
+          }
+        : undefined;
+      if (historyUsage) messageUsageByKey.set(messageKey, historyUsage);
       const header = '';
       const time = Date.now();
       const text = `${header}${entry.text}`;
@@ -2781,6 +3060,9 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
         role: entry.role === 'user' ? 'user' : 'assistant',
         messageAgent: displayMeta?.agent,
         messageModel: displayMeta?.model,
+        messageProviderId: usageProviderId,
+        messageModelId: usageModelId,
+        messageUsage: historyUsage,
         messageVariant: displayMeta?.variant,
         messageTime: resolvedTime,
         scroll: overflowLines > 0,
@@ -3389,6 +3671,7 @@ async function sendMessage() {
     while (recentUserInputs.length > 20) recentUserInputs.shift();
   }
   messageInput.value = '';
+  resumeFollow();
   isSending.value = true;
   sendStatus.value = 'Sending...';
   try {
@@ -6810,11 +7093,20 @@ function connect() {
       }
     }
 
-    const stepFinish = extractStepFinish(payload, resolvedEventType);
-    if (stepFinish) {
-      if (markReasoningFinished(stepFinish.sessionId ?? sessionId, stepFinish.messageId)) {
-        scheduleReasoningClose(stepFinish.sessionId ?? sessionId);
+      const stepFinish = extractStepFinish(payload, resolvedEventType);
+      if (stepFinish) {
+        if (markReasoningFinished(stepFinish.sessionId ?? sessionId, stepFinish.messageId)) {
+          scheduleReasoningClose(stepFinish.sessionId ?? sessionId);
+        }
       }
+
+    const usageUpdate = extractUsageUpdate(payload, resolvedEventType);
+    if (usageUpdate) {
+      applyMessageUsageToQueue(
+        usageUpdate.messageId,
+        usageUpdate.sessionId ?? sessionId,
+        usageUpdate.usage,
+      );
     }
 
     const messageFinish = extractMessageFinish(payload, resolvedEventType);
@@ -6877,6 +7169,7 @@ function connect() {
               messageKey: attachmentKey,
               follow: isSubagentMessage ? true : undefined,
               sessionId,
+              messageUsage: messageUsageByKey.get(attachmentKey),
               zIndex: isSubagentMessage ? nextWindowZ() : undefined,
             });
             messageIndexById.set(attachmentKey, queue.value.length - 1);
@@ -7011,6 +7304,9 @@ function connect() {
             nextOverflowLines > 0 ? Math.min(0.25, Math.max(0.08, nextOverflowLines * 0.01)) : 0;
           const nextMessageAgent = displayMeta?.agent ?? existing.messageAgent;
           const nextMessageModel = displayMeta?.model ?? existing.messageModel;
+          const nextMessageProviderId = resolvedMeta?.providerId ?? existing.messageProviderId;
+          const nextMessageModelId = resolvedMeta?.modelId ?? existing.messageModelId;
+          const nextMessageUsage = existing.messageUsage ?? messageUsageByKey.get(messageKey);
           const nextMessageVariant = displayMeta?.variant ?? existing.messageVariant;
           const nextMessageTime = resolvedTime ?? existing.messageTime;
           const nextAttachments =
@@ -7026,6 +7322,9 @@ function connect() {
             role: isUserMessage ? 'user' : existing.role,
             messageAgent: nextMessageAgent,
             messageModel: nextMessageModel,
+            messageProviderId: nextMessageProviderId,
+            messageModelId: nextMessageModelId,
+            messageUsage: nextMessageUsage,
             messageVariant: nextMessageVariant,
             messageTime: nextMessageTime,
             scroll: !isFloatingMessage && nextOverflowLines > 0,
@@ -7057,6 +7356,9 @@ function connect() {
         role: isUserMessage ? 'user' : 'assistant',
         messageAgent: displayMeta?.agent,
         messageModel: displayMeta?.model,
+        messageProviderId: resolvedMeta?.providerId,
+        messageModelId: resolvedMeta?.modelId,
+        messageUsage: messageUsageByKey.get(messageKey),
         messageVariant: displayMeta?.variant,
         messageTime: resolvedTime,
         scroll: !isFloatingMessage && overflowLines > 0,

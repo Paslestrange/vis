@@ -271,7 +271,6 @@ type FileReadEntry = {
   diffLang?: string;
   diffTabs?: Array<{ file: string; before: string; after: string }>;
   classification?: 'real_user' | 'system_injection' | 'unknown';
-  isFinalAnswer?: boolean;
   isRound?: boolean;
   roundId?: string;
   roundMessages?: RoundMessage[];
@@ -454,7 +453,6 @@ const subagentSessionExpiry = new Map<string, number>();
 const messageSummaryTitleById = new Map<string, string>();
 type MessageDiffEntry = { file: string; diff: string; before?: string; after?: string };
 const messageDiffsByKey = reactive(new Map<string, Array<MessageDiffEntry>>());
-const userMessageToFinalKey = new Map<string, string>();
 const reasoningTitleBySessionId = new Map<string, string>();
 type SessionStatusType = 'busy' | 'idle' | 'retry';
 
@@ -3358,14 +3356,10 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
       const parts = message.parts as unknown;
       const id = typeof info?.id === 'string' ? info.id : undefined;
       const role = typeof info?.role === 'string' ? info.role : undefined;
-      if (id && role === 'assistant' && Array.isArray(parts)) {
-        extractMessageDiffsFromParts(parts, id, sessionId);
-      }
-      // Validate parentID field exists in API response
-      if (index < 3) {
-        console.log(`Message ${index} parentID:`, info?.parentID);
-      }
-    });
+       if (id && role === 'assistant' && Array.isArray(parts)) {
+         extractMessageDiffsFromParts(parts, id, sessionId);
+       }
+     });
 
     const history = data
       .map((message, sourceIndex) => {
@@ -3507,7 +3501,6 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
           isWrite: false,
           isMessage: true,
           isSubagentMessage,
-          isFinalAnswer: isAssistantEntry && entry.finish === 'stop',
           messageId: entry.id,
           messageKey,
           follow: true,
@@ -3588,13 +3581,12 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
         scroll: false,
         scrollDistance: 0,
         scrollDuration: 0,
-        html: '',
-        attachments: root.attachments,
-        isWrite: false,
-        isMessage: true,
-        isSubagentMessage: false,
-        isFinalAnswer: false,
-        isRound: true,
+         html: '',
+         attachments: root.attachments,
+         isWrite: false,
+         isMessage: true,
+         isSubagentMessage: false,
+         isRound: true,
         roundId: root.id,
         roundMessages,
         roundDiffs,
@@ -6462,33 +6454,6 @@ function classifyUserMessage(
   return 'unknown';
 }
 
-function classifyAssistantMessage(
-  role: string | undefined,
-  messageKey: string,
-): { isFinalAnswer: boolean } {
-  if (role !== 'assistant') return { isFinalAnswer: false };
-
-  const types = messagePartTypesById.get(messageKey);
-  if (!types || types.size === 0) {
-    // No parts recorded yet? It might be a simple message without parts.
-    // If it has content, it's likely text.
-    return { isFinalAnswer: true }; 
-  }
-
-  // If it contains ANY tool use, it's intermediate.
-  // (We assume 'tool' or 'tool_use' or similar part types).
-  // I need to verify what the part type string is for tools.
-  // `upsertToolEntry` logic suggests `eventType` might be 'patch' etc, but `extractMessage` checks `part.type`.
-  // `extractMessageDiffsFromParts` checks `p.type === 'tool'`.
-  const hasTool = types.has('tool');
-  
-  // If it has tool, it's intermediate (not final summary).
-  if (hasTool) return { isFinalAnswer: false };
-
-  // If it has only text (and maybe reasoning?), it's a summary.
-  return { isFinalAnswer: true };
-}
-
 function extractPartType(payload: unknown, eventType: string) {
   if (!payload || typeof payload !== 'object') return null;
   const record = payload as Record<string, unknown>;
@@ -6803,14 +6768,11 @@ function promoteFinalAnswerToOutputPanel(
       round.roundMessages = [...existingRoundMessages, newSubMessage];
       messageIndexById.set(finalMessageKey, targetRoundIndex);
       messageContentById.set(finalMessageKey, content);
-      if (existingUsage) messageUsageByKey.set(finalMessageKey, existingUsage);
-      if (attachments && attachments.length > 0) {
-        messageAttachmentsById.set(finalMessageKey, attachments);
-      }
-      if (messageFinish.parentID) {
-        userMessageToFinalKey.set(messageFinish.parentID, finalMessageKey);
-      }
-      scheduleFollowScroll();
+       if (existingUsage) messageUsageByKey.set(finalMessageKey, existingUsage);
+       if (attachments && attachments.length > 0) {
+         messageAttachmentsById.set(finalMessageKey, attachments);
+       }
+       scheduleFollowScroll();
       return;
     }
   }
@@ -6833,13 +6795,12 @@ function promoteFinalAnswerToOutputPanel(
     scroll: overflowLines > 0,
     scrollDistance,
     scrollDuration,
-    html: '',
-    attachments,
-    isWrite: false,
-    isMessage: true,
-    isSubagentMessage: false,
-    isFinalAnswer: false,
-    isRound: true,
+     html: '',
+     attachments,
+     isWrite: false,
+     isMessage: true,
+     isSubagentMessage: false,
+     isRound: true,
     roundId,
     roundMessages: [newSubMessage],
     roundDiffs: [],
@@ -6861,12 +6822,7 @@ function promoteFinalAnswerToOutputPanel(
     messageAttachmentsById.set(finalMessageKey, attachments);
   }
 
-  // Register user→assistant mapping so SSE summary.diffs events can find the right key
-  if (messageFinish.parentID) {
-    userMessageToFinalKey.set(messageFinish.parentID, finalMessageKey);
-  }
-
-  scheduleFollowScroll();
+   scheduleFollowScroll();
 }
 
 function formatRetryTime(timestamp: number): string {
@@ -7600,19 +7556,15 @@ function registerMessageSummary(payload: unknown) {
     const roundIndex = queue.value.findIndex(
       (entry) => entry.isRound && entry.roundId === id,
     );
-    if (roundIndex >= 0) {
-      const roundEntry = queue.value[roundIndex];
-      if (roundEntry) {
-        roundEntry.roundDiffs = diffs;
-        const messageKey = buildMessageKey(roundEntry.roundId ?? id, roundEntry.sessionId);
-        messageDiffsByKey.set(messageKey, diffs);
-      }
-      return;
-    }
-    const finalKey = userMessageToFinalKey.get(id);
-    if (finalKey) {
-      messageDiffsByKey.set(finalKey, diffs);
-    }
+     if (roundIndex >= 0) {
+       const roundEntry = queue.value[roundIndex];
+       if (roundEntry) {
+         roundEntry.roundDiffs = diffs;
+         const messageKey = buildMessageKey(roundEntry.roundId ?? id, roundEntry.sessionId);
+         messageDiffsByKey.set(messageKey, diffs);
+       }
+       return;
+     }
   }
 }
 
@@ -8529,11 +8481,10 @@ function connect() {
             scrollDuration: 0,
             html: '',
             attachments,
-            isWrite: false,
-            isMessage: true,
-            isSubagentMessage: false,
-            isFinalAnswer: false,
-            isRound: true,
+             isWrite: false,
+             isMessage: true,
+             isSubagentMessage: false,
+             isRound: true,
             roundId,
             roundMessages: [roundRootMessage],
             roundDiffs: [],

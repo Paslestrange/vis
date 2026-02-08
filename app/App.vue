@@ -2597,13 +2597,12 @@ async function fetchAgents() {
     const data = (await opencodeApi.listAgents(OPENCODE_BASE_URL)) as AgentInfo[];
     agents.value = Array.isArray(data) ? data : [];
     const options = agents.value
-      .filter((agent) => agent.mode === 'primary')
+      .filter((agent) => agent.mode === 'primary' || agent.mode === 'all')
       .filter((agent) => !agent.hidden)
       .map((agent) => ({
         id: agent.name,
         label: agent.name ? `${agent.name.charAt(0).toUpperCase()}${agent.name.slice(1)}` : agent.name,
       }));
-    options.sort((a, b) => a.label.localeCompare(b.label));
     agentOptions.value = options;
     if (!selectedMode.value || !options.some((option) => option.id === selectedMode.value)) {
       const preferred = options.find((option) => option.id === 'build')?.id ?? options[0]?.id;

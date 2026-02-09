@@ -650,6 +650,7 @@ const selectedWorktreeDir = ref('');
 const selectedSessionId = ref('');
 const selectedProjectDirectory = ref('');
 const homePath = ref('');
+const serverWorktreePath = ref('');
 const initialQuery = readQuerySelection();
 if (initialQuery.projectId) selectedProjectId.value = initialQuery.projectId;
 if (initialQuery.sessionId) selectedSessionId.value = initialQuery.sessionId;
@@ -2207,9 +2208,12 @@ function removeSessionFromGraph(sessionId: string) {
 
 async function fetchHomePath() {
   try {
-    const data = (await opencodeApi.getPathInfo(OPENCODE_BASE_URL)) as { home?: string };
+    const data = (await opencodeApi.getPathInfo(OPENCODE_BASE_URL)) as { home?: string; worktree?: string };
     if (typeof data.home === 'string' && data.home.trim()) {
       homePath.value = data.home.trim();
+    }
+    if (typeof data.worktree === 'string' && data.worktree.trim()) {
+      serverWorktreePath.value = data.worktree.trim();
     }
   } catch {
     return;
@@ -2244,11 +2248,23 @@ async function fetchCurrentProject(directory?: string) {
   }
 }
 
+function resolveDirectory(directory: string, baseDir: string) {
+  const trimmed = directory.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('/')) return trimmed;
+  if (!baseDir) return trimmed;
+  if (trimmed === '.') return baseDir;
+  return baseDir.replace(/\/+$/, '') + '/' + trimmed.replace(/^\.\//, '');
+}
+
 function projectSessionDirectories(project?: ProjectInfo) {
   if (!project) return [] as string[];
+  const baseDir = serverWorktreePath.value;
   const candidates = [] as string[];
-  if (project.worktree) candidates.push(project.worktree);
-  if (Array.isArray(project.sandboxes)) candidates.push(...project.sandboxes);
+  if (project.worktree) candidates.push(resolveDirectory(project.worktree, baseDir));
+  if (Array.isArray(project.sandboxes)) {
+    candidates.push(...project.sandboxes.map((s) => resolveDirectory(s, baseDir)));
+  }
   return Array.from(
     new Set(candidates.map((directory) => directory.trim()).filter((directory) => directory)),
   );
@@ -6021,6 +6037,7 @@ watch(
 watch(
   filteredSessions,
   () => {
+    if (isBootstrapping.value) return;
     if (filteredSessions.value.length === 0) return;
     const preferredId = pickPreferredSessionId(filteredSessions.value);
     if (!selectedSessionId.value) {
@@ -10379,8 +10396,7 @@ onMounted(() => {
     });
   }
   hydrateShellPtyStorage();
-  void fetchHomePath();
-  void bootstrapSelections();
+  void fetchHomePath().then(() => bootstrapSelections());
   fetchProviders();
   fetchAgents();
   if (activeDirectory.value) {

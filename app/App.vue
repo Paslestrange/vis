@@ -71,6 +71,7 @@
                 v-for="entry in fw.entries.value"
                 :key="entry.key"
                 :entry="entry"
+                :manager="fw"
                 @focus="fw.bringToFront(entry.key)"
                 @close="fw.close(entry.key)"
               />
@@ -152,6 +153,19 @@ import TaskContent from './components/ToolWindow/Task.vue';
 import DefaultContent from './components/ToolWindow/Default.vue';
 import SidePanel from './components/SidePanel.vue';
 import TopPanel from './components/TopPanel.vue';
+import PermissionWindow from './components/PermissionWindow.vue';
+import QuestionWindow from './components/QuestionWindow.vue';
+import FileViewerContent from './components/ToolWindow/FileViewer.vue';
+import ShellContent from './components/ToolWindow/Shell.vue';
+import {
+  formatGlobToolTitle,
+  formatReadLikeToolTitle,
+  resolveReadWritePath,
+  formatListToolTitle,
+  formatWebfetchToolTitle,
+  formatQueryToolTitle,
+  toolColor,
+} from './components/ToolWindow/utils';
 import { useOutputPanelFollow } from './composables/useOutputPanelFollow';
 import { useFloatingWindows } from './composables/useFloatingWindows';
 import * as opencodeApi from './utils/opencode';
@@ -386,7 +400,6 @@ type PtyInfo = {
 
 type ShellSession = {
   pty: PtyInfo;
-  entry: FileReadEntry;
   terminal: Terminal;
   fitAddon: FitAddon;
   socket?: WebSocket;
@@ -537,7 +550,7 @@ const sessionDiffEntries = ref<SessionDiffEntry[]>([]);
 const sessionDiffByPath = ref<Record<string, SessionDiffEntry>>({});
 let treeRequestId = 0;
 let sessionDiffRequestId = 0;
-const fileViewerQueue = ref<FileReadEntry[]>([]);
+// fileViewerQueue removed — file viewers now use fw.open()
 
 type ProjectInfo = {
   id: string;
@@ -3781,29 +3794,21 @@ async function updatePtySize(ptyId: string, rows: number, cols: number, director
 
 function ensureShellWindow(pty: PtyInfo, sessionId: string, options: { preserve?: boolean } = {}) {
   if (shellSessionsByPtyId.has(pty.id)) return;
-  const time = Date.now();
+  const key = `shell:${pty.id}`;
   const randomPosition = getRandomWindowPosition();
-  const entry: FileReadEntry = {
-    time,
-    expiresAt: Number.MAX_SAFE_INTEGER,
+  fw.open(key, {
+    component: ShellContent,
+    props: { shellId: pty.id },
+    closable: true,
+    resizable: true,
+    scroll: 'none',
+    color: '#a855f7',
+    title: pty.title || 'Shell',
     x: randomPosition.x,
     y: randomPosition.y,
-    header: '',
-    path: undefined,
-    content: '',
-    scroll: false,
-    scrollDistance: 0,
-    scrollDuration: 0,
-    html: '',
-    isWrite: false,
-    isMessage: false,
-    isShell: true,
-    shellId: pty.id,
-    shellTitle: pty.title || 'Shell',
-    sessionId,
-    zIndex: SHELL_WINDOW_Z_BASE + nextWindowZ(),
-  };
-  queue.value.push(entry);
+    expiresAt: Number.MAX_SAFE_INTEGER,
+    onResize: () => scheduleShellFit(pty.id),
+  });
   if (!options.preserve) addShellPtyId(sessionId, pty.id);
   const terminal = new Terminal({
     fontFamily: TERM_FONT_FAMILY,
@@ -3821,7 +3826,6 @@ function ensureShellWindow(pty: PtyInfo, sessionId: string, options: { preserve?
   terminal.loadAddon(fitAddon);
   shellSessionsByPtyId.set(pty.id, {
     pty,
-    entry,
     terminal,
     fitAddon,
     sessionId,
@@ -3905,8 +3909,7 @@ function removeShellWindow(ptyId: string, options: { preserve?: boolean } = {}) 
   session.socket?.close();
   session.terminal.dispose();
   shellSessionsByPtyId.delete(ptyId);
-  const index = queue.value.findIndex((entry) => entry.isShell && entry.shellId === ptyId);
-  if (index >= 0) queue.value.splice(index, 1);
+  fw.close(`shell:${ptyId}`);
   if (!options.preserve) removeShellPtyId(session.sessionId, ptyId);
 }
 
@@ -5396,6 +5399,45 @@ async function abortSession() {
   }
 }
 
+const fw = useFloatingWindows();
+
+// Sync floating message entries (reasoning, subagent) from queue → fw
+function syncFloatingMessages() {
+  const floatingKeys = new Set<string>();
+  queue.value.forEach((entry) => {
+    const isFloating = entry.isReasoning || (entry.isSubagentMessage && entry.isMessage);
+    if (!isFloating) return;
+    const messageKey = entry.messageKey;
+    if (!messageKey) return;
+    const key = `message:${messageKey}`;
+    floatingKeys.add(key);
+    const title = getEntryTitle(entry);
+    const content = entry.content || '';
+    const lang = 'markdown';
+    fw.open(key, {
+      content,
+      lang,
+      title,
+      scroll: 'follow',
+      resizable: true,
+      closable: false,
+      color: entry.isReasoning ? '#8b5cf6' : '#6366f1',
+      x: entry.x,
+      y: entry.y,
+      width: entry.width,
+      height: entry.height,
+      expiresAt: entry.expiresAt,
+    });
+  });
+  // Remove fw entries for floating messages that no longer exist in queue
+  for (const entry of fw.entries.value) {
+    if (!entry.key.startsWith('message:')) continue;
+    if (!floatingKeys.has(entry.key)) {
+      fw.close(entry.key);
+    }
+  }
+}
+
 watch(
   worktrees,
   (list) => {
@@ -5473,7 +5515,7 @@ function reloadSelectedSessionState() {
   if (selected?.projectID) selectedProjectId.value = selected.projectID;
   disposeShellWindows({ preserve: true });
   queue.value = [];
-  fileViewerQueue.value = [];
+  fw.closeAll();
   messageIndexById.clear();
   toolIndexByCallId.clear();
   messageContentById.clear();
@@ -5499,6 +5541,10 @@ function reloadSelectedSessionState() {
     const directory = activeDirectory.value || undefined;
     void fetchPendingPermissions(directory);
     void fetchPendingQuestions(directory);
+    // Fetch child sessions so allowedSessionIds includes them.
+    // When sessionParentById updates, the watch on allowedSessionIds
+    // will automatically re-trigger reloadTodosForAllowedSessions.
+    void fetchSessionChildren(selectedSessionId.value, directory);
   }
 }
 
@@ -5601,8 +5647,6 @@ function log(..._args: unknown[]) {}
 
 const shikiTheme = ref('github-dark');
 
-const fw = useFloatingWindows();
-
 setInterval(() => {
   const now = Date.now();
   messageIndexById.clear();
@@ -5672,6 +5716,7 @@ setInterval(() => {
   subagentSessionExpiry.forEach((_, sessionId) => {
     if (!survivingSessionIds.has(sessionId)) subagentSessionExpiry.delete(sessionId);
   });
+  syncFloatingMessages();
 }, 100);
 
 watch(
@@ -6383,98 +6428,70 @@ function toUint8ArrayFromText(input: string) {
   return new TextEncoder().encode(input);
 }
 
-function getFileViewerByPath(path: string) {
-  return fileViewerQueue.value.find((entry) => entry.path === path);
-}
-
-function closeFileViewer(entry: FileReadEntry) {
-  const index = fileViewerQueue.value.findIndex((item) => item.toolKey === entry.toolKey);
-  if (index >= 0) fileViewerQueue.value.splice(index, 1);
+function getFileViewerPosition(factorX = 0.16, factorY = 0.1) {
+  const metrics = getCanvasMetrics();
+  const x = metrics
+    ? clamp(
+        metrics.canvasRect.width * factorX,
+        16,
+        Math.max(16, metrics.canvasRect.width - FILE_VIEWER_WINDOW_WIDTH - 16),
+      )
+    : 24;
+  const y = metrics
+    ? clamp(
+        metrics.toolAreaHeight * factorY,
+        16,
+        Math.max(16, metrics.toolAreaHeight - FILE_VIEWER_WINDOW_HEIGHT - 16),
+      )
+    : 24;
+  return { x, y };
 }
 
 function openSessionDiff(path: string) {
   const entry = sessionDiffByPath.value[path];
   if (!entry || !entry.file) return;
-  const existing = fileViewerQueue.value.find((item) => item.toolKey === `session-diff:${path}`);
-  if (existing) {
-    bringToFront(existing);
+  const key = `session-diff:${path}`;
+  if (fw.has(key)) {
+    fw.bringToFront(key);
     return;
   }
-  const metrics = getCanvasMetrics();
-  const x = metrics
-    ? clamp(
-        metrics.canvasRect.width * 0.16,
-        16,
-        Math.max(16, metrics.canvasRect.width - FILE_VIEWER_WINDOW_WIDTH - 16),
-      )
-    : 24;
-  const y = metrics
-    ? clamp(
-        metrics.toolAreaHeight * 0.1,
-        16,
-        Math.max(16, metrics.toolAreaHeight - FILE_VIEWER_WINDOW_HEIGHT - 16),
-      )
-    : 24;
-  const diffEntry: FileReadEntry = {
-    time: Date.now(),
-    expiresAt: Number.MAX_SAFE_INTEGER,
-    x,
-    y,
-    header: '',
-    path,
-    content: '',
-    scroll: false,
-    scrollDistance: 0,
-    scrollDuration: 0,
-    html: '',
-    isWrite: false,
-    isMessage: false,
-    toolName: 'diff',
-    toolTitle: path,
-    lang: guessLanguage(path),
-    toolGutterMode: 'none',
-    toolKey: `session-diff:${path}`,
+  const pos = getFileViewerPosition();
+  fw.open(key, {
+    component: FileViewerContent,
+    props: {
+      path,
+      isDiff: true,
+      isLoading: true,
+      diffCode: entry.before ?? '',
+      diffAfter: entry.after,
+      gutterMode: 'none',
+      lang: guessLanguage(path),
+      theme: shikiTheme.value,
+    },
+    closable: true,
+    resizable: true,
+    scroll: 'manual',
+    title: path,
+    x: pos.x,
+    y: pos.y,
     width: FILE_VIEWER_WINDOW_WIDTH,
     height: FILE_VIEWER_WINDOW_HEIGHT,
-    isBinary: false,
-    isDiff: true,
-    isLoading: true,
-    diffCode: entry.before ?? '',
-    diffAfter: entry.after,
-  };
-  bringToFront(diffEntry);
-  fileViewerQueue.value.push(diffEntry);
+    expiresAt: Number.MAX_SAFE_INTEGER,
+  });
 }
 
 function handleShowMessageDiff(payload: { messageKey: string; diffs: Array<MessageDiffEntry> }) {
   const { messageKey, diffs } = payload;
   if (!diffs || diffs.length === 0) return;
-  const toolKey = `message-diff:${messageKey}`;
-  const existing = fileViewerQueue.value.find((item) => item.toolKey === toolKey);
-  if (existing) {
-    bringToFront(existing);
+  const key = `message-diff:${messageKey}`;
+  if (fw.has(key)) {
+    fw.bringToFront(key);
     return;
   }
-  // If diffs have before/after (from summary.diffs), use them for rich diff view
   const hasBeforeAfter = diffs.some(
     (d) => typeof d.before === 'string' && typeof d.after === 'string',
   );
   const combinedDiff = hasBeforeAfter ? '' : diffs.map((d) => d.diff).join('\n');
-  const metrics = getCanvasMetrics();
-  const x = metrics
-    ? clamp(
-        metrics.canvasRect.width * 0.16,
-        16,
-        Math.max(16, metrics.canvasRect.width - FILE_VIEWER_WINDOW_WIDTH - 16),
-      )
-    : 24;
-  const y = metrics
-    ? clamp(
-        metrics.toolAreaHeight * 0.1,
-        16,
-        Math.max(16, metrics.toolAreaHeight - FILE_VIEWER_WINDOW_HEIGHT - 16),
-      )
-    : 24;
   const fileCount = diffs.length;
   const title = fileCount === 1 ? diffs[0].file : `${fileCount} files changed`;
   const firstFile = diffs[0]?.file ?? '';
@@ -6490,145 +6507,100 @@ function handleShowMessageDiff(payload: { messageKey: string; diffs: Array<Messa
       }));
   }
 
-  const diffEntry: FileReadEntry = {
-    time: Date.now(),
-    expiresAt: Number.MAX_SAFE_INTEGER,
-    x,
-    y,
-    header: '',
-    path: firstFile,
-    content: hasBeforeAfter ? '' : combinedDiff,
-    scroll: false,
-    scrollDistance: 0,
-    scrollDuration: 0,
-    html: '',
-    isWrite: false,
-    isMessage: false,
-    toolName: 'diff',
-    toolTitle: title,
-    lang: fileCount === 1 ? guessLanguage(firstFile) : 'text',
-    toolGutterMode: hasBeforeAfter ? 'double' : 'none',
-    toolKey,
+  const pos = getFileViewerPosition();
+  fw.open(key, {
+    component: FileViewerContent,
+    props: {
+      path: firstFile,
+      isDiff: true,
+      isLoading: true,
+      diffCode: hasBeforeAfter ? (diffs[0]?.before ?? '') : '',
+      diffAfter: hasBeforeAfter ? (diffs[0]?.after ?? '') : undefined,
+      diffPatch: hasBeforeAfter ? undefined : combinedDiff,
+      diffTabs,
+      gutterMode: hasBeforeAfter ? 'double' : 'none',
+      lang: fileCount === 1 ? guessLanguage(firstFile) : 'text',
+      theme: shikiTheme.value,
+    },
+    closable: true,
+    resizable: true,
+    scroll: 'manual',
+    title,
+    x: pos.x,
+    y: pos.y,
     width: FILE_VIEWER_WINDOW_WIDTH,
     height: FILE_VIEWER_WINDOW_HEIGHT,
-    isBinary: false,
-    isDiff: true,
-    isLoading: true,
-    diffCode: hasBeforeAfter ? (diffs[0]?.before ?? '') : '',
-    diffAfter: hasBeforeAfter ? (diffs[0]?.after ?? '') : undefined,
-    diffTabs,
-  };
-  bringToFront(diffEntry);
-  fileViewerQueue.value.push(diffEntry);
+    expiresAt: Number.MAX_SAFE_INTEGER,
+  });
 }
 
 function handleShowMessageHistory(payload: { roundId: string; contents: string[] }) {
   const { roundId, contents } = payload;
   if (!contents || contents.length === 0) return;
-  const toolKey = `message-history:${roundId}`;
-  // Remove existing popup for this round (re-create to pick up new messages)
-  const existingIndex = fileViewerQueue.value.findIndex((item) => item.toolKey === toolKey);
-  if (existingIndex !== -1) {
-    fileViewerQueue.value.splice(existingIndex, 1);
-  }
+  const key = `message-history:${roundId}`;
+  // Close existing to re-create with updated messages
+  if (fw.has(key)) fw.close(key);
   const combinedMarkdown = contents.join('\n\n---\n\n');
-  const metrics = getCanvasMetrics();
-  const x = metrics
-    ? clamp(
-        metrics.canvasRect.width * 0.16,
-        16,
-        Math.max(16, metrics.canvasRect.width - FILE_VIEWER_WINDOW_WIDTH - 16),
-      )
-    : 24;
-  const y = metrics
-    ? clamp(
-        metrics.toolAreaHeight * 0.1,
-        16,
-        Math.max(16, metrics.toolAreaHeight - FILE_VIEWER_WINDOW_HEIGHT - 16),
-      )
-    : 24;
-  const historyEntry: FileReadEntry = {
-    time: Date.now(),
-    expiresAt: Number.MAX_SAFE_INTEGER,
-    x,
-    y,
-    header: '',
-    content: combinedMarkdown,
-    scroll: false,
-    scrollDistance: 0,
-    scrollDuration: 0,
-    html: '',
-    isWrite: false,
-    isMessage: true,
-    toolName: 'history',
-    toolTitle: `Message History (${contents.length})`,
-    lang: 'markdown',
-    toolKey,
-    toolWrapMode: 'soft',
-    toolGutterMode: 'none',
+  const pos = getFileViewerPosition();
+  fw.open(key, {
+    component: FileViewerContent,
+    props: {
+      fileContent: combinedMarkdown,
+      lang: 'markdown',
+      gutterMode: 'none',
+      theme: shikiTheme.value,
+    },
+    closable: true,
+    resizable: true,
+    scroll: 'manual',
+    title: `Message History (${contents.length})`,
+    x: pos.x,
+    y: pos.y,
     width: FILE_VIEWER_WINDOW_WIDTH,
     height: FILE_VIEWER_WINDOW_HEIGHT,
-    contentKey: `history-${roundId}-${contents.length}`,
-  };
-  bringToFront(historyEntry);
-  fileViewerQueue.value.push(historyEntry);
+    expiresAt: Number.MAX_SAFE_INTEGER,
+  });
 }
 
 async function openFileViewer(path: string) {
-  const existing = getFileViewerByPath(path);
-  if (existing) {
-    bringToFront(existing);
+  const key = `file-viewer:${path}`;
+  if (fw.has(key)) {
+    fw.bringToFront(key);
     return;
   }
-  const metrics = getCanvasMetrics();
-  const x = metrics
-    ? clamp(
-        metrics.canvasRect.width * 0.18,
-        16,
-        Math.max(16, metrics.canvasRect.width - FILE_VIEWER_WINDOW_WIDTH - 16),
-      )
-    : 32;
-  const y = metrics
-    ? clamp(
-        metrics.toolAreaHeight * 0.14,
-        16,
-        Math.max(16, metrics.toolAreaHeight - FILE_VIEWER_WINDOW_HEIGHT - 16),
-      )
-    : 32;
-  const entry: FileReadEntry = {
-    time: Date.now(),
-    expiresAt: Number.MAX_SAFE_INTEGER,
-    x,
-    y,
-    header: '',
-    path,
-    content: '',
-    scroll: false,
-    scrollDistance: 0,
-    scrollDuration: 0,
-    html: '',
-    isWrite: false,
-    isMessage: false,
-    toolName: 'read',
-    toolTitle: path,
-    lang: guessLanguage(path),
-    toolGutterMode: 'default',
-    toolKey: `file-viewer:${path}`,
+  const pos = getFileViewerPosition(0.18, 0.14);
+  const lang = guessLanguage(path);
+  fw.open(key, {
+    component: FileViewerContent,
+    props: {
+      path,
+      lang,
+      isLoading: true,
+      gutterMode: 'default',
+      theme: shikiTheme.value,
+    },
+    closable: true,
+    resizable: true,
+    scroll: 'manual',
+    title: path,
+    x: pos.x,
+    y: pos.y,
     width: FILE_VIEWER_WINDOW_WIDTH,
     height: FILE_VIEWER_WINDOW_HEIGHT,
-    isBinary: false,
-    isLoading: true,
-  };
-  bringToFront(entry);
-  fileViewerQueue.value.push(entry);
-  const viewerEntry = fileViewerQueue.value[fileViewerQueue.value.length - 1];
-  if (!viewerEntry) return;
+    expiresAt: Number.MAX_SAFE_INTEGER,
+  });
 
   const directory = activeDirectory.value.trim();
   if (!directory) {
-    viewerEntry.html = 'No active directory selected.';
-    viewerEntry.toolGutterMode = 'none';
-    viewerEntry.isLoading = false;
+    fw.updateOptions(key, {
+      props: {
+        path,
+        rawHtml: 'No active directory selected.',
+        gutterMode: 'none',
+        isLoading: false,
+        theme: shikiTheme.value,
+      },
+    });
     return;
   }
 
@@ -6642,34 +6614,58 @@ async function openFileViewer(path: string) {
     const content = typeof data?.content === 'string' ? data.content : '';
     if (type === 'binary') {
       if (!content) {
-        viewerEntry.html =
-          'Binary content is not included in this API response.\nUnable to render hexdump for this file.';
-        viewerEntry.toolGutterMode = 'none';
-        viewerEntry.isBinary = false;
-        viewerEntry.isLoading = false;
+        fw.updateOptions(key, {
+          props: {
+            path,
+            rawHtml:
+              'Binary content is not included in this API response.\nUnable to render hexdump for this file.',
+            gutterMode: 'none',
+            isBinary: false,
+            isLoading: false,
+            theme: shikiTheme.value,
+          },
+        });
         return;
       }
       const bytes =
         encoding === 'base64' ? toUint8ArrayFromBase64(content) : toUint8ArrayFromText(content);
       const dump = hexdump(bytes, { color: 'html' });
-      viewerEntry.html = `<pre class="shiki"><code>${dump}</code></pre>`;
-      viewerEntry.toolGutterMode = 'none';
-      viewerEntry.isBinary = true;
-      viewerEntry.isLoading = false;
+      fw.updateOptions(key, {
+        props: {
+          path,
+          rawHtml: `<pre class="shiki"><code>${dump}</code></pre>`,
+          gutterMode: 'none',
+          isBinary: true,
+          isLoading: false,
+          theme: shikiTheme.value,
+        },
+      });
       return;
     }
-    const lang = guessLanguage(path);
+    const resolvedLang = guessLanguage(path);
     const textContent = encoding === 'base64' ? atob(content) : content;
-    viewerEntry.content = textContent;
-    viewerEntry.lang = lang;
-    viewerEntry.toolGutterMode = 'default';
-    viewerEntry.isBinary = false;
-    viewerEntry.isLoading = false;
+    fw.updateOptions(key, {
+      props: {
+        path,
+        fileContent: textContent,
+        lang: resolvedLang,
+        gutterMode: 'default',
+        isBinary: false,
+        isLoading: false,
+        theme: shikiTheme.value,
+      },
+    });
   } catch (error) {
-    viewerEntry.html = `File load failed: ${toErrorMessage(error)}`;
-    viewerEntry.toolGutterMode = 'none';
-    viewerEntry.isBinary = false;
-    viewerEntry.isLoading = false;
+    fw.updateOptions(key, {
+      props: {
+        path,
+        rawHtml: `File load failed: ${toErrorMessage(error)}`,
+        gutterMode: 'none',
+        isBinary: false,
+        isLoading: false,
+        theme: shikiTheme.value,
+      },
+    });
   }
 }
 
@@ -7119,24 +7115,34 @@ function extractFileRead(payload: unknown, eventType: string) {
           : undefined;
 
     // New component-based dispatch - returns component + props instead of formatted content
+    const toolPrefix = (label: string, detail?: string) => {
+      const d = detail?.trim();
+      return d ? `[${label}] ${d}` : `[${label}]`;
+    };
+
     switch (tool) {
       case 'bash': {
+        const command = typeof input?.command === 'string' ? input.command.trim() : '';
+        const titleDetail = command ? command.split('\n')[0].slice(0, 80) : undefined;
         return {
           component: BashContent,
           props: { input, output: outputText, error: errorText, status, state },
           callId,
           toolName: tool,
           toolStatus: status,
+          title: toolPrefix('SHELL', titleDetail),
         };
       }
       case 'read': {
         if (status === 'running') return null;
+        const readPath = resolveReadWritePath(input, metadata, state);
         return {
           component: ReadContent,
           props: { input, output: outputText, error: errorText, status, metadata, state },
           callId,
           toolName: tool,
           toolStatus: status,
+          title: toolPrefix('READ', readPath),
         };
       }
       case 'grep': {
@@ -7147,6 +7153,7 @@ function extractFileRead(payload: unknown, eventType: string) {
           callId,
           toolName: tool,
           toolStatus: status,
+          title: toolPrefix('GREP', formatGlobToolTitle(input)),
         };
       }
       case 'glob': {
@@ -7157,6 +7164,7 @@ function extractFileRead(payload: unknown, eventType: string) {
           callId,
           toolName: tool,
           toolStatus: status,
+          title: toolPrefix('GLOB', formatGlobToolTitle(input)),
         };
       }
       case 'list': {
@@ -7166,6 +7174,7 @@ function extractFileRead(payload: unknown, eventType: string) {
           callId,
           toolName: tool,
           toolStatus: status,
+          title: toolPrefix('LS', formatListToolTitle(input)),
         };
       }
       case 'webfetch': {
@@ -7176,17 +7185,20 @@ function extractFileRead(payload: unknown, eventType: string) {
           callId,
           toolName: tool,
           toolStatus: status,
+          title: toolPrefix('FETCH', formatWebfetchToolTitle(input)),
         };
       }
       case 'websearch':
       case 'codesearch': {
         if (status === 'running') return null;
+        const searchPrefix = tool === 'websearch' ? 'SEARCH' : 'CODE';
         return {
           component: WebContent,
           props: { input, output: outputText, error: errorText, status, toolName: tool },
           callId,
           toolName: tool,
           toolStatus: status,
+          title: toolPrefix(searchPrefix, formatQueryToolTitle(input)),
         };
       }
       case 'task': {
@@ -7196,6 +7208,7 @@ function extractFileRead(payload: unknown, eventType: string) {
           callId,
           toolName: tool,
           toolStatus: status,
+          title: toolPrefix('TASK'),
         };
       }
       case 'batch': {
@@ -7205,29 +7218,35 @@ function extractFileRead(payload: unknown, eventType: string) {
           callId,
           toolName: tool,
           toolStatus: status,
+          title: toolPrefix('BATCH'),
         };
       }
       case 'write': {
+        const writePath = resolveReadWritePath(input, metadata, state);
         return {
           component: DefaultContent,
           props: { input, output: outputText, error: errorText, status, metadata, state, toolName: tool },
           callId,
           toolName: tool,
           toolStatus: status,
+          title: toolPrefix('WRITE', writePath),
         };
       }
       case 'edit': {
         const diff = typeof metadata?.diff === 'string' ? metadata.diff : '';
+        const editPath = resolveReadWritePath(input, metadata, state);
         return {
           component: EditContent,
           props: { input, output: outputText, error: errorText, status, metadata, toolName: tool, diff },
           callId,
           toolName: tool,
           toolStatus: status,
+          title: toolPrefix('EDIT', editPath),
         };
       }
       case 'multiedit': {
         if (status === 'running') return null;
+        const editPathMulti = resolveReadWritePath(input, metadata, state);
         const results = Array.isArray(metadata?.results) ? metadata.results : [];
         const diffs = results
           .map((item) => {
@@ -7237,13 +7256,13 @@ function extractFileRead(payload: unknown, eventType: string) {
           })
           .filter((item): item is string => Boolean(item));
         if (diffs.length > 1) {
-          // Return array for multiple diffs - caller will fw.open() each
           return diffs.map((diff, index) => ({
             component: EditContent,
             props: { input, output: outputText, error: errorText, status, metadata, toolName: tool, diff, index, total: diffs.length },
             callId: callId ? `${callId}:${index}` : undefined,
             toolName: tool,
             toolStatus: status,
+            title: toolPrefix('EDIT', editPathMulti ? `${editPathMulti} (${index + 1}/${diffs.length})` : `(${index + 1}/${diffs.length})`),
           }));
         }
         if (diffs.length === 1) {
@@ -7253,6 +7272,7 @@ function extractFileRead(payload: unknown, eventType: string) {
             callId,
             toolName: tool,
             toolStatus: status,
+            title: toolPrefix('EDIT', editPathMulti),
           };
         }
         return {
@@ -7261,6 +7281,7 @@ function extractFileRead(payload: unknown, eventType: string) {
           callId,
           toolName: tool,
           toolStatus: status,
+          title: toolPrefix('EDIT', editPathMulti),
         };
       }
       case 'plan_enter':
@@ -7271,6 +7292,7 @@ function extractFileRead(payload: unknown, eventType: string) {
           callId,
           toolName: tool,
           toolStatus: status,
+          title: toolPrefix(tool === 'plan_enter' ? 'PLAN' : 'PLAN EXIT'),
         };
       }
       default:
@@ -8357,7 +8379,9 @@ function handlePtyEvent(event: {
     const existing = shellSessionsByPtyId.get(event.info.id);
     if (existing) {
       existing.pty = event.info;
-      existing.entry.shellTitle = event.info.title || existing.entry.shellTitle;
+      if (event.info.title) {
+        fw.setTitle(`shell:${event.info.id}`, event.info.title);
+      }
     }
     if (event.info.status === 'exited') {
       removeShellWindow(event.info.id);
@@ -8365,61 +8389,42 @@ function handlePtyEvent(event: {
   }
 }
 
-function buildPermissionEntry(request: PermissionRequest): FileReadEntry {
-  const time = Date.now();
-  const width = PERMISSION_WINDOW_WIDTH;
-  const height = PERMISSION_WINDOW_HEIGHT;
-  const randomPosition = getRandomWindowPosition({ width, height });
-  return {
-    time,
+function upsertPermissionEntry(request: PermissionRequest) {
+  const key = `permission:${request.id}`;
+  fw.open(key, {
+    component: PermissionWindow,
+    props: {
+      request,
+      isSubmitting: isPermissionSubmitting(request.id),
+      error: getPermissionError(request.id),
+      onReply: handlePermissionReply,
+    },
+    closable: false,
+    resizable: false,
+    scroll: 'manual',
+    color: '#f59e0b',
+    title: `Permission: ${request.permission || 'request'}`,
+    width: PERMISSION_WINDOW_WIDTH,
+    height: PERMISSION_WINDOW_HEIGHT,
     expiresAt: Number.MAX_SAFE_INTEGER,
-    x: randomPosition.x,
-    y: randomPosition.y,
-    header: '',
-    path: undefined,
-    content: '',
-    scroll: false,
-    scrollDistance: 0,
-    scrollDuration: 0,
-    html: '',
-    isWrite: false,
-    isMessage: false,
-    isPermission: true,
-    permissionId: request.id,
-    permissionRequest: request,
-    sessionId: request.sessionID,
-    width,
-    height,
-    zIndex: nextWindowZ(),
-  };
+  });
 }
 
-function upsertPermissionEntry(request: PermissionRequest) {
-  const existingIndex = queue.value.findIndex(
-    (entry) => entry.isPermission && entry.permissionId === request.id,
-  );
-  if (existingIndex >= 0) {
-    const existing = queue.value[existingIndex];
-    if (!existing) return;
-    queue.value.splice(existingIndex, 1, {
-      ...existing,
-      permissionId: request.id,
-      permissionRequest: request,
-      sessionId: request.sessionID,
-      expiresAt: Number.MAX_SAFE_INTEGER,
-      isPermission: true,
-    });
-    return;
-  }
-  queue.value.push(buildPermissionEntry(request));
+function refreshPermissionWindow(requestId: string) {
+  const key = `permission:${requestId}`;
+  const entry = fw.get(key);
+  if (!entry) return;
+  fw.updateOptions(key, {
+    props: {
+      ...entry.props,
+      isSubmitting: isPermissionSubmitting(requestId),
+      error: getPermissionError(requestId),
+    },
+  });
 }
 
 function removePermissionEntry(requestId: string) {
-  const existingIndex = queue.value.findIndex(
-    (entry) => entry.isPermission && entry.permissionId === requestId,
-  );
-  if (existingIndex < 0) return;
-  queue.value.splice(existingIndex, 1);
+  fw.close(`permission:${requestId}`);
   clearPermissionSending(requestId);
   clearPermissionError(requestId);
 }
@@ -8463,14 +8468,14 @@ function isPermissionSessionAllowed(request: PermissionRequest) {
 
 function prunePermissionEntries() {
   const allowed = allowedSessionIds.value;
-  const toRemove = new Set<string>();
-  queue.value.forEach((entry) => {
-    if (!entry.isPermission || !entry.permissionRequest) return;
-    if (!allowed.has(entry.permissionRequest.sessionID)) {
-      toRemove.add(entry.permissionRequest.id);
+  for (const entry of fw.entries.value) {
+    if (!entry.key.startsWith('permission:')) continue;
+    const request = entry.props?.request as PermissionRequest | undefined;
+    if (!request) continue;
+    if (!allowed.has(request.sessionID)) {
+      removePermissionEntry(request.id);
     }
-  });
-  toRemove.forEach((requestId) => removePermissionEntry(requestId));
+  }
 }
 
 async function sendPermissionReply(requestId: string, reply: PermissionReply) {
@@ -8486,71 +8491,56 @@ async function handlePermissionReply(payload: { requestId: string; reply: Permis
   if (isPermissionSubmitting(requestId)) return;
   clearPermissionError(requestId);
   setPermissionSending(requestId, true);
+  refreshPermissionWindow(requestId);
   try {
     await sendPermissionReply(requestId, reply);
     removePermissionEntry(requestId);
   } catch (error) {
     setPermissionError(requestId, toErrorMessage(error));
+    refreshPermissionWindow(requestId);
   } finally {
     clearPermissionSending(requestId);
+    refreshPermissionWindow(requestId);
   }
-}
-
-function buildQuestionEntry(request: QuestionRequest): FileReadEntry {
-  const time = Date.now();
-  const width = QUESTION_WINDOW_WIDTH;
-  const height = QUESTION_WINDOW_HEIGHT;
-  const randomPosition = getRandomWindowPosition({ width, height });
-  return {
-    time,
-    expiresAt: Number.MAX_SAFE_INTEGER,
-    x: randomPosition.x,
-    y: randomPosition.y,
-    header: '',
-    path: undefined,
-    content: '',
-    scroll: false,
-    scrollDistance: 0,
-    scrollDuration: 0,
-    html: '',
-    isWrite: false,
-    isMessage: false,
-    isQuestion: true,
-    questionId: request.id,
-    questionRequest: request,
-    sessionId: request.sessionID,
-    width,
-    height,
-    zIndex: nextWindowZ(),
-  };
 }
 
 function upsertQuestionEntry(request: QuestionRequest) {
-  const existingIndex = queue.value.findIndex(
-    (entry) => entry.isQuestion && entry.questionId === request.id,
-  );
-  if (existingIndex >= 0) {
-    const existing = queue.value[existingIndex];
-    if (!existing) return;
-    queue.value.splice(existingIndex, 1, {
-      ...existing,
-      questionId: request.id,
-      questionRequest: request,
-      sessionId: request.sessionID,
-      expiresAt: Number.MAX_SAFE_INTEGER,
-      isQuestion: true,
-    });
-    return;
-  }
-  queue.value.push(buildQuestionEntry(request));
+  const key = `question:${request.id}`;
+  fw.open(key, {
+    component: QuestionWindow,
+    props: {
+      request,
+      isSubmitting: isQuestionSubmitting(request.id),
+      error: getQuestionError(request.id),
+      onReply: handleQuestionReply,
+      onReject: handleQuestionReject,
+    },
+    closable: false,
+    resizable: false,
+    scroll: 'manual',
+    color: '#34d399',
+    title: `Question: ${request.questions?.[0]?.header || 'request'}`,
+    width: QUESTION_WINDOW_WIDTH,
+    height: QUESTION_WINDOW_HEIGHT,
+    expiresAt: Number.MAX_SAFE_INTEGER,
+  });
+}
+
+function refreshQuestionWindow(requestId: string) {
+  const key = `question:${requestId}`;
+  const entry = fw.get(key);
+  if (!entry) return;
+  fw.updateOptions(key, {
+    props: {
+      ...entry.props,
+      isSubmitting: isQuestionSubmitting(requestId),
+      error: getQuestionError(requestId),
+    },
+  });
 }
 
 function removeQuestionEntry(requestId: string) {
-  const existingIndex = queue.value.findIndex(
-    (entry) => entry.isQuestion && entry.questionId === requestId,
-  );
-  if (existingIndex < 0) return;
-  queue.value.splice(existingIndex, 1);
+  fw.close(`question:${requestId}`);
   clearQuestionSending(requestId);
   clearQuestionError(requestId);
 }
@@ -8594,14 +8584,14 @@ function isQuestionSessionAllowed(request: QuestionRequest) {
 
 function pruneQuestionEntries() {
   const allowed = allowedSessionIds.value;
-  const toRemove = new Set<string>();
-  queue.value.forEach((entry) => {
-    if (!entry.isQuestion || !entry.questionRequest) return;
-    if (!allowed.has(entry.questionRequest.sessionID)) {
-      toRemove.add(entry.questionRequest.id);
+  for (const entry of fw.entries.value) {
+    if (!entry.key.startsWith('question:')) continue;
+    const request = entry.props?.request as QuestionRequest | undefined;
+    if (!request) continue;
+    if (!allowed.has(request.sessionID)) {
+      removeQuestionEntry(request.id);
     }
-  });
-  toRemove.forEach((requestId) => removeQuestionEntry(requestId));
+  }
 }
 
 function normalizeQuestionAnswers(answers: QuestionAnswer[]) {
@@ -8632,13 +8622,16 @@ async function handleQuestionReply(payload: { requestId: string; answers: Questi
   if (isQuestionSubmitting(requestId)) return;
   clearQuestionError(requestId);
   setQuestionSending(requestId, true);
+  refreshQuestionWindow(requestId);
   try {
     await sendQuestionReply(requestId, answers);
     removeQuestionEntry(requestId);
   } catch (error) {
     setQuestionError(requestId, toErrorMessage(error));
+    refreshQuestionWindow(requestId);
   } finally {
     clearQuestionSending(requestId);
+    refreshQuestionWindow(requestId);
   }
 }
 
@@ -8646,13 +8639,16 @@ async function handleQuestionReject(requestId: string) {
   if (isQuestionSubmitting(requestId)) return;
   clearQuestionError(requestId);
   setQuestionSending(requestId, true);
+  refreshQuestionWindow(requestId);
   try {
     await sendQuestionReject(requestId);
     removeQuestionEntry(requestId);
   } catch (error) {
     setQuestionError(requestId, toErrorMessage(error));
+    refreshQuestionWindow(requestId);
   } finally {
     clearQuestionSending(requestId);
+    refreshQuestionWindow(requestId);
   }
 }
 
@@ -9859,6 +9855,8 @@ function connect() {
           component: entry.component,
           props: entry.props,
           status: entry.toolStatus,
+          title: entry.title,
+          color: toolColor(entry.toolName),
         });
       }
     });

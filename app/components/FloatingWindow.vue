@@ -2,10 +2,11 @@
 import { ref, computed, provide } from 'vue';
 import CodeContent from './CodeContent.vue';
 import { FLOATING_WINDOW_KEY, type FloatingWindowAPI } from '../composables/useFloatingWindow';
-import type { FloatingWindowEntry } from '../composables/useFloatingWindows';
+import type { FloatingWindowEntry, useFloatingWindows } from '../composables/useFloatingWindows';
 
 const props = defineProps<{
   entry: FloatingWindowEntry;
+  manager: ReturnType<typeof useFloatingWindows>;
 }>();
 
 const emit = defineEmits<{
@@ -23,11 +24,10 @@ const api: FloatingWindowAPI = {
   title: computed(() => props.entry.title || ''),
   status: computed(() => props.entry.status || ''),
   setContent: (text: string) => {
-    // This would need to call back to the composable
-    console.warn('setContent not fully implemented');
+    props.manager.setContent(props.entry.key, text);
   },
   appendContent: (text: string) => {
-    console.warn('appendContent not fully implemented');
+    props.manager.appendContent(props.entry.key, text);
   },
   setTitle: (title: string) => {
     props.entry.title = title;
@@ -170,12 +170,13 @@ function onResizeEnd(e: PointerEvent) {
       :class="scrollClass"
       ref="bodyEl"
     >
-      <component 
-        :is="entry.component || CodeContent" 
-        v-bind="entry.props || {}"
-        :content="entry.content"
-        :html="entry.resolvedHtml"
-      />
+      <template v-if="entry.component">
+        <component 
+          :is="entry.component" 
+          v-bind="entry.props || {}"
+        />
+      </template>
+      <CodeContent v-else :html="entry.resolvedHtml || entry.content || ''" />
     </div>
     <div 
       v-if="entry.resizable" 
@@ -197,6 +198,7 @@ function onResizeEnd(e: PointerEvent) {
   font-family: var(--term-font-family, monospace);
   font-size: var(--term-font-size, 14px);
   line-height: var(--term-line-height, 1.5);
+  color: #e2e8f0;
   pointer-events: auto;
 }
 

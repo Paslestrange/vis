@@ -2207,6 +2207,42 @@ function removeSessionFromGraph(sessionId: string) {
   sessionParentById.value = next;
 }
 
+/**
+ * Fetch all descendant sessions for the given root session via the
+ * `/session/{sessionID}/children` API and register them into
+ * `sessionParentById` so that `allowedSessionIds` includes them.
+ * This is the primary fix for child sessions not being recognised
+ * after initial page load (the `GET /session?directory=…` endpoint
+ * only returns sessions whose directory matches, so sub-agent
+ * sessions with a different—or missing—directory are omitted).
+ */
+async function fetchSessionChildren(rootSessionId: string, directory?: string) {
+  try {
+    const data = (await opencodeApi.getSessionChildren(
+      OPENCODE_BASE_URL,
+      rootSessionId,
+      directory,
+    )) as SessionInfo[];
+    if (!Array.isArray(data) || data.length === 0) return;
+    const next = new Map(sessionParentById.value);
+    let changed = false;
+    for (const child of data) {
+      if (!child || typeof child.id !== 'string') continue;
+      const parentId = typeof child.parentID === 'string' ? child.parentID : rootSessionId;
+      if (!next.has(child.id) || next.get(child.id) !== parentId) {
+        next.set(child.id, parentId);
+        changed = true;
+      }
+    }
+    if (changed) {
+      sessionParentById.value = next;
+    }
+  } catch {
+    // Non-critical: child list unavailable. SSE events will
+    // register children as they arrive.
+  }
+}
+
 async function fetchHomePath() {
   try {
     const data = (await opencodeApi.getPathInfo(OPENCODE_BASE_URL)) as {
@@ -5927,61 +5963,6 @@ function parseQuestionRequest(value: unknown, fallbackSessionId?: string): Quest
   };
 }
 
-function extractFileBodyFromReadOutput(output: string) {
-  const startTag = '<file>';
-  const endTag = '</file>';
-  const startIndex = output.indexOf(startTag);
-  const endIndex = output.lastIndexOf(endTag);
-  if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) return null;
-  const body = output.slice(startIndex + startTag.length, endIndex);
-  const lines = body.split('\n');
-  const contentLines: string[] = [];
-  for (const line of lines) {
-    const match = line.match(/^(\d+)\|(.*)$/);
-    if (!match) continue;
-    contentLines.push(match[2] ?? '');
-  }
-  if (contentLines.length === 0) return null;
-  return contentLines.join('\n');
-}
-
-function parseGrepOutputWithSourceLines(output: string) {
-  const lines = output.split('\n');
-  const contentLines: string[] = [];
-  const gutterLines: string[] = [];
-  let hasSourceLine = false;
-
-  for (const line of lines) {
-    const match = line.match(/^\s*Line\s+(\d+):\s?(.*)$/);
-    if (match) {
-      hasSourceLine = true;
-      gutterLines.push(match[1] ?? '');
-      contentLines.push(match[2] ?? '');
-      continue;
-    }
-    gutterLines.push('');
-    contentLines.push(line);
-  }
-
-  if (!hasSourceLine) return null;
-  return {
-    content: contentLines.join('\n'),
-    gutterLines,
-  };
-}
-
-function formatGlobToolTitle(input: Record<string, unknown> | undefined) {
-  const pattern = typeof input?.pattern === 'string' ? input.pattern.trim() : '';
-  const path = typeof input?.path === 'string' ? input.path.trim() : '';
-  const include = typeof input?.include === 'string' ? input.include.trim() : '';
-  const segments: string[] = [];
-  if (pattern) segments.push(pattern);
-  if (path) segments.push(`@ ${path}`);
-  if (include) segments.push(`include ${include}`);
-  const title = segments.join(' ');
-  return title || undefined;
-}
-
 const TOOL_WINDOW_HIDDEN = new Set(['question', 'todoread', 'todowrite', 'lsp']);
 const TOOL_WINDOW_SUPPORTED = new Set([
   'apply_patch',
@@ -6003,176 +5984,7 @@ function shouldRenderToolWindow(tool: string) {
   return !TOOL_WINDOW_HIDDEN.has(tool) && TOOL_WINDOW_SUPPORTED.has(tool);
 }
 
-function formatBashToolTitle(
-  input: Record<string, unknown> | undefined,
-  state: Record<string, unknown> | undefined,
-) {
-  const description = typeof input?.description === 'string' ? input.description.trim() : '';
-  if (description) return description;
-  const stateTitle = typeof state?.title === 'string' ? state.title.trim() : '';
-  if (stateTitle) return stateTitle;
-  const command = typeof input?.command === 'string' ? input.command.trim() : '';
-  if (!command) return undefined;
-  const firstLine = command.split('\n')[0]?.trim() ?? '';
-  return firstLine.length > 96 ? `${firstLine.slice(0, 93)}...` : firstLine;
-}
 
-function formatListToolTitle(input: Record<string, unknown> | undefined) {
-  const path = typeof input?.path === 'string' ? input.path.trim() : '';
-  return path || undefined;
-}
-
-function formatReadLikeToolTitle(input: Record<string, unknown> | undefined) {
-  const filePath = typeof input?.filePath === 'string' ? input.filePath.trim() : '';
-  if (filePath) return filePath;
-  const path = typeof input?.path === 'string' ? input.path.trim() : '';
-  return path || undefined;
-}
-
-function resolveReadWritePath(
-  input: Record<string, unknown> | undefined,
-  metadata: Record<string, unknown> | undefined,
-  state: Record<string, unknown> | undefined,
-) {
-  const filePath = typeof input?.filePath === 'string' ? input.filePath.trim() : '';
-  if (filePath) return filePath;
-  const path = typeof input?.path === 'string' ? input.path.trim() : '';
-  if (path) return path;
-  const metadataPath = typeof metadata?.filepath === 'string' ? metadata.filepath.trim() : '';
-  if (metadataPath) return metadataPath;
-  const title = typeof state?.title === 'string' ? state.title.trim() : '';
-  return title || undefined;
-}
-
-function resolveReadRange(input: Record<string, unknown> | undefined) {
-  const offsetValue = input?.offset;
-  const limitValue = input?.limit;
-  const offset =
-    typeof offsetValue === 'number' && Number.isFinite(offsetValue) && offsetValue >= 0
-      ? Math.floor(offsetValue)
-      : undefined;
-  const limit =
-    typeof limitValue === 'number' && Number.isFinite(limitValue) && limitValue > 0
-      ? Math.floor(limitValue)
-      : undefined;
-  return { offset, limit };
-}
-
-function isReadWithOffset(entry: { toolName?: string; readOffset?: number }) {
-  return entry.toolName === 'read' && typeof entry.readOffset === 'number' && entry.readOffset > 0;
-}
-
-async function hydrateAndPopupRead(
-  entry: {
-    content: string;
-    path?: string;
-    isWrite: boolean;
-    callId?: string;
-    toolStatus?: string;
-    toolName?: string;
-    toolTitle?: string;
-    lang?: string;
-    grepPattern?: string;
-    wrapMode?: FileReadEntry['toolWrapMode'];
-    gutterMode?: FileReadEntry['toolGutterMode'];
-    gutterLines?: string[];
-    readOffset?: number;
-    readLimit?: number;
-  },
-  eventType: string,
-) {
-  if (!entry.callId || !entry.path) return;
-  if (typeof entry.readOffset !== 'number' || entry.readOffset <= 0) return;
-
-  const directory = activeDirectory.value.trim();
-  if (!directory) return;
-
-  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  pendingReadFullCodeByCallId.set(entry.callId, requestId);
-
-  try {
-    const pathCandidates: string[] = [];
-    if (entry.path.startsWith('/')) {
-      const normalizedDirectory = normalizeDirectory(directory);
-      if (entry.path === normalizedDirectory) {
-        pathCandidates.push('.');
-      } else if (entry.path.startsWith(`${normalizedDirectory}/`)) {
-        pathCandidates.push(entry.path.slice(normalizedDirectory.length + 1));
-      }
-    }
-    pathCandidates.push(entry.path);
-
-    let data: FileContentResponse | null = null;
-    for (const candidate of pathCandidates) {
-      try {
-        data = (await opencodeApi.readFileContent(OPENCODE_BASE_URL, {
-          directory,
-          path: candidate,
-        })) as FileContentResponse;
-        break;
-      } catch {
-        continue;
-      }
-    }
-
-    if (!data) return;
-    if (pendingReadFullCodeByCallId.get(entry.callId) !== requestId) return;
-    const type = data?.type === 'binary' ? 'binary' : 'text';
-    if (type !== 'text') return;
-    const encoding = typeof data?.encoding === 'string' ? data.encoding : 'utf-8';
-    const rawContent = typeof data?.content === 'string' ? data.content : '';
-    const fullCode = encoding === 'base64' ? atob(rawContent) : rawContent;
-
-    upsertToolEntry(
-      {
-        ...entry,
-        content: fullCode,
-        toolStatus: 'completed',
-      },
-      eventType,
-    );
-  } catch {
-    return;
-  }
-}
-
-function formatWebfetchToolTitle(input: Record<string, unknown> | undefined) {
-  const url = typeof input?.url === 'string' ? input.url.trim() : '';
-  return url || undefined;
-}
-
-function formatQueryToolTitle(input: Record<string, unknown> | undefined) {
-  const query = typeof input?.query === 'string' ? input.query.trim() : '';
-  return query || undefined;
-}
-
-function formatTaskToolOutput(output: string) {
-  const taskIdMatch = output.match(/^task_id:\s*(.+)$/m);
-  const bodyMatch = output.match(/<task_result>\n?([\s\S]*?)\n?<\/task_result>/);
-  const parts: string[] = [];
-  if (taskIdMatch?.[1]) parts.push(`task_id: ${taskIdMatch[1].trim()}`);
-  if (bodyMatch?.[1]) parts.push(bodyMatch[1].trim());
-  if (parts.length > 0) return parts.join('\n\n');
-  return output;
-}
-
-function formatBashToolContent(
-  input: Record<string, unknown> | undefined,
-  output: string,
-  status?: string,
-) {
-  const command = typeof input?.command === 'string' ? input.command : '';
-  const lines: string[] = [];
-  if (command.trim()) {
-    lines.push(`$ ${command}`);
-  }
-  if (output.trim()) {
-    if (lines.length > 0) lines.push('');
-    lines.push(output);
-  }
-  if (lines.length === 0 && status === 'running') return '$';
-  return lines.join('\n');
-}
 
 function parsePatchTextBlocks(patchText: string) {
   const lines = patchText.split('\n');

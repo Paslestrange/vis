@@ -36,9 +36,6 @@
                         :code="msg.content"
                         :lang="'markdown'"
                         :theme="theme"
-                        :wrap-mode="'soft'"
-                        :gutter-mode="'none'"
-                        :is-message="true"
                         @rendered="handleMessageRendered"
                       />
                     </div>
@@ -69,9 +66,6 @@
                             :code="group.messages[group.messages.length - 1]?.content ?? ''"
                             :lang="'markdown'"
                             :theme="theme"
-                            :wrap-mode="'soft'"
-                            :gutter-mode="'none'"
-                            :is-message="true"
                             @rendered="handleMessageRendered"
                           />
                         </div>
@@ -146,9 +140,6 @@
                   :code="q.content"
                   :lang="'markdown'"
                   :theme="theme"
-                  :wrap-mode="'soft'"
-                  :gutter-mode="'none'"
-                  :is-message="true"
                   @rendered="handleMessageRendered"
                 />
                 <div

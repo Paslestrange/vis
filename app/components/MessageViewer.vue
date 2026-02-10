@@ -1,12 +1,5 @@
 <template>
-  <div
-    class="message-viewer shiki-host"
-    :class="{
-      'wrap-soft': wrapMode === 'soft',
-      'no-gutter': gutterMode === 'none',
-      'is-message': isMessage,
-    }"
-  >
+  <div class="message-viewer shiki-host">
     <div v-if="state.html" class="message-content" v-html="state.html"></div>
     <div v-else-if="state.error" class="message-loading">{{ state.error }}</div>
   </div>
@@ -20,13 +13,6 @@ const props = defineProps<{
   code: string;
   lang: string;
   theme: string;
-  wrapMode?: 'default' | 'soft';
-  gutterMode?: 'none' | 'single' | 'double';
-  gutterLines?: string[];
-  grepPattern?: string;
-  lineOffset?: number;
-  lineLimit?: number;
-  isMessage?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -54,11 +40,7 @@ async function startRender() {
     code: props.code,
     lang: props.lang,
     theme: props.theme,
-    gutterMode: props.gutterMode ?? 'none',
-    gutterLines: props.gutterLines ? toRaw(props.gutterLines) : undefined,
-    grepPattern: props.grepPattern,
-    lineOffset: props.lineOffset,
-    lineLimit: props.lineLimit,
+    gutterMode: 'none',
   })
     .then((html) => {
       if (current !== state.requestId) return;
@@ -82,12 +64,6 @@ watch(
     props.code,
     props.lang,
     props.theme,
-    props.wrapMode,
-    props.gutterMode,
-    props.grepPattern,
-    props.lineOffset,
-    props.lineLimit,
-    props.gutterLines?.join('\n') ?? '',
   ],
   startRender,
   { immediate: true },
@@ -138,7 +114,7 @@ onBeforeUnmount(() => {
 
 .message-content :deep(code) {
   display: grid;
-  grid-template-columns: max-content max-content 1fr;
+  grid-template-columns: 1fr;
   column-gap: 0;
 }
 
@@ -150,42 +126,16 @@ onBeforeUnmount(() => {
 }
 
 .message-content :deep(.code-gutter) {
-  text-align: right;
-  color: #8a8a8a;
-  white-space: pre;
-  font-variant-numeric: tabular-nums;
-  padding: 0 1ch 0 1ch;
-}
-
-.message-content :deep(.code-gutter.span-2) {
-  grid-column: 1 / 3;
+  display: none;
 }
 
 .message-content :deep(.line) {
   display: block;
   min-height: 1em;
-  white-space: pre;
-  box-sizing: border-box;
-  padding-left: 1ch;
-}
-
-.message-viewer.no-gutter .message-content :deep(code) {
-  grid-template-columns: 1fr;
-}
-
-.message-viewer.no-gutter .message-content :deep(.code-gutter) {
-  display: none;
-}
-
-.message-viewer.no-gutter .message-content :deep(.line) {
-  padding-left: 0;
-}
-
-.message-viewer.wrap-soft .message-content :deep(.line),
-.message-viewer.is-message .message-content :deep(.line) {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
+  box-sizing: border-box;
 }
 
 .message-content :deep(.line:empty)::after {

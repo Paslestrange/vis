@@ -52,6 +52,7 @@ const { html: renderedHtml } = useCodeRender(() => ({
   code: displayContent.value,
   lang: lang.value,
   theme: 'github-dark',
+  gutterMode: 'single' as const,
   lineOffset: readRange.value.offset,
   lineLimit: readRange.value.limit,
 }));

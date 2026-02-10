@@ -31,10 +31,10 @@ const { html: renderedHtml } = useCodeRender(() => ({
   code: displayContent.value,
   lang: lang.value,
   theme: 'github-dark',
-  gutterMode: 'none' as const,
+  gutterMode: 'single' as const,
 }));
 </script>
 
 <template>
-  <CodeContent :html="renderedHtml" variant="code" gutter-mode="none" />
+  <CodeContent :html="renderedHtml" variant="code" />
 </template>

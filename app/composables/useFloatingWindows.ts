@@ -1,5 +1,5 @@
 import { reactive, computed, markRaw, onUnmounted, type Component, type Ref } from 'vue';
-import { renderWorkerHtml, type RenderRequest } from '../utils/workerRenderer';
+import { renderWorkerHtml } from '../utils/workerRenderer';
 
 export interface FloatingWindowEntry {
   key: string;
@@ -11,6 +11,9 @@ export interface FloatingWindowEntry {
   status?: 'running' | 'completed' | 'error';
   resolvedHtml: string;
   isReady: boolean;
+  variant?: 'code' | 'diff' | 'message' | 'binary' | 'term' | 'plain';
+  lineOffset?: number;
+  lineLimit?: number;
   x: number;
   y: number;
   width?: number;
@@ -30,6 +33,8 @@ export interface FloatingWindowEntry {
   onResize?: (width: number, height: number) => void;
 }
 
+export type Extent = { width: number; height: number };
+
 const TOOL_RUNNING_TTL_MS = 1000 * 60 * 10;
 const TOOL_COMPLETED_TTL_MS = 2000;
 
@@ -37,11 +42,14 @@ const DEFAULT_OPTS: Partial<FloatingWindowEntry> = {
   closable: false,
   resizable: false,
   scroll: 'force',
-  x: 100,
-  y: 100,
   width: 600,
   height: 400,
 };
+
+let renderIdCounter = 0;
+function nextRenderId(): string {
+  return `fw-${++renderIdCounter}-${Date.now().toString(36)}`;
+}
 
 let zIndexCounter = 100;
 
@@ -49,13 +57,12 @@ function nextZIndex(): number {
   return ++zIndexCounter;
 }
 
-function getRandomPosition(): { x: number; y: number } {
-  const maxX = Math.max(200, window.innerWidth - 700);
-  const maxY = Math.max(100, window.innerHeight - 500);
-  return {
-    x: Math.floor(Math.random() * maxX) + 50,
-    y: Math.floor(Math.random() * maxY) + 50,
-  };
+function variantToGutterMode(variant?: string): 'none' | 'single' | 'double' {
+  switch (variant) {
+    case 'diff': return 'double';
+    case 'code': return 'single';
+    default: return 'none';
+  }
 }
 
 /**
@@ -93,6 +100,27 @@ function resolveExpiresAt(
 export function useFloatingWindows() {
   const entriesMap = reactive(new Map<string, FloatingWindowEntry>());
   const entries = computed(() => [...entriesMap.values()].filter((e) => e.isReady));
+  let extent: Extent = {
+    width: typeof window !== 'undefined' ? window.innerWidth : 1920,
+    height: typeof window !== 'undefined' ? window.innerHeight : 1080,
+  };
+
+  function setExtent(w: number, h: number) {
+    extent = { width: w, height: h };
+  }
+
+  function getExtent(): Extent {
+    return extent;
+  }
+
+  function getRandomPosition(targetWidth = 600, targetHeight = 400): { x: number; y: number } {
+    const maxX = Math.max(0, extent.width - targetWidth);
+    const maxY = Math.max(0, extent.height - targetHeight);
+    return {
+      x: Math.floor(Math.random() * maxX),
+      y: Math.floor(Math.random() * maxY),
+    };
+  }
 
   // GC timer
   const gcInterval = setInterval(() => {
@@ -122,9 +150,14 @@ export function useFloatingWindows() {
       expiresAt: resolveExpiresAt(opts, existing),
     } as FloatingWindowEntry;
 
-    // Set initial position if new
-    if (!existing && !opts.x && !opts.y) {
-      const pos = getRandomPosition();
+    // When updating an existing entry, merge props instead of replacing
+    if (existing && existing.props && opts.props) {
+      merged.props = { ...existing.props, ...opts.props };
+    }
+
+    // Set initial position if new and no explicit x/y provided
+    if (!existing && opts.x == null && opts.y == null) {
+      const pos = getRandomPosition(merged.width ?? 600, merged.height ?? 400);
       merged.x = pos.x;
       merged.y = pos.y;
     }
@@ -146,9 +179,13 @@ export function useFloatingWindows() {
     } else if (merged.content && merged.lang) {
       try {
         merged.resolvedHtml = await renderWorkerHtml({
+          id: nextRenderId(),
           code: merged.content,
           lang: merged.lang,
           theme: 'github-dark',
+          gutterMode: variantToGutterMode(merged.variant),
+          lineOffset: merged.lineOffset,
+          lineLimit: merged.lineLimit,
         });
         merged.isReady = true;
       } catch (e) {
@@ -204,9 +241,11 @@ export function useFloatingWindows() {
 
     if (lang) {
       entry.resolvedHtml = await renderWorkerHtml({
+        id: nextRenderId(),
         code: text,
         lang,
         theme: 'github-dark',
+        gutterMode: variantToGutterMode(entry.variant),
       });
     } else {
       entry.resolvedHtml = text;
@@ -222,9 +261,11 @@ export function useFloatingWindows() {
 
     if (lang || entry.lang) {
       entry.resolvedHtml = await renderWorkerHtml({
+        id: nextRenderId(),
         code: newContent,
         lang: lang || entry.lang!,
         theme: 'github-dark',
+        gutterMode: variantToGutterMode(entry.variant),
       });
     } else {
       entry.resolvedHtml = newContent;
@@ -304,5 +345,7 @@ export function useFloatingWindows() {
     closeAll,
     has,
     get,
+    setExtent,
+    getExtent,
   };
 }

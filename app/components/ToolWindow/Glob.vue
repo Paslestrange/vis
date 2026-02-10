@@ -23,5 +23,5 @@ const { html: renderedHtml } = useCodeRender(() => ({
 </script>
 
 <template>
-  <CodeContent :html="renderedHtml" variant="code" gutter-mode="none" />
+  <CodeContent :html="renderedHtml" variant="term" />
 </template>

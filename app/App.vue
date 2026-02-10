@@ -145,7 +145,6 @@ import hexdump from '@kikuchan/hexdump';
 import FloatingWindow from './components/FloatingWindow.vue';
 import BashContent from './components/ToolWindow/Bash.vue';
 import GrepContent from './components/ToolWindow/Grep.vue';
-import ReadContent from './components/ToolWindow/Read.vue';
 import EditContent from './components/ToolWindow/Edit.vue';
 import GlobContent from './components/ToolWindow/Glob.vue';
 import WebContent from './components/ToolWindow/Web.vue';
@@ -161,6 +160,8 @@ import {
   formatGlobToolTitle,
   formatReadLikeToolTitle,
   resolveReadWritePath,
+  resolveReadRange,
+  guessLanguageFromPath,
   formatListToolTitle,
   formatWebfetchToolTitle,
   formatQueryToolTitle,
@@ -1507,7 +1508,15 @@ function syncCanvasTermMetrics() {
 
 function handleWindowResize() {
   syncCanvasTermMetrics();
+  syncFloatingExtent();
   scheduleShellFitAll();
+}
+
+function syncFloatingExtent() {
+  const canvas = toolWindowCanvasEl.value;
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  fw.setExtent(rect.width, rect.height);
 }
 
 function bringToFront(entry: FileReadEntry) {
@@ -5413,6 +5422,7 @@ function syncFloatingMessages() {
     const title = getEntryTitle(entry);
     const content = entry.content || '';
     const lang = 'markdown';
+    const alreadyOpen = fw.has(key);
     fw.open(key, {
       content,
       lang,
@@ -5421,10 +5431,13 @@ function syncFloatingMessages() {
       resizable: true,
       closable: false,
       color: entry.isReasoning ? '#8b5cf6' : '#6366f1',
-      x: entry.x,
-      y: entry.y,
-      width: entry.width,
-      height: entry.height,
+      variant: 'message',
+      ...(!alreadyOpen && {
+        x: entry.x,
+        y: entry.y,
+        width: entry.width,
+        height: entry.height,
+      }),
       expiresAt: entry.expiresAt,
     });
   });
@@ -5868,6 +5881,24 @@ function extractToolOutputText(output: unknown) {
     if (parts.length > 0) return parts.join('\n');
   }
   return formatToolValue(output);
+}
+
+function extractReadFileBody(output: string | undefined): string {
+  if (!output) return '';
+  const startTag = '<file>';
+  const endTag = '</file>';
+  const startIndex = output.indexOf(startTag);
+  const endIndex = output.lastIndexOf(endTag);
+  if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) return output;
+  const body = output.slice(startIndex + startTag.length, endIndex);
+  const lines = body.split('\n');
+  const contentLines: string[] = [];
+  for (const line of lines) {
+    const match = line.match(/^(\d+)\|(.*)$/);
+    if (!match) continue;
+    contentLines.push(match[2] ?? '');
+  }
+  return contentLines.length > 0 ? contentLines.join('\n') : output;
 }
 
 function parsePermissionRequest(
@@ -6973,13 +7004,13 @@ function extractPatch(payload: unknown) {
     if (parsedBlocks.length === 0) return null;
     const baseCallId = callId ?? 'apply_patch';
     const entries = parsedBlocks.map((block, index) => ({
-      content: '',
-      path: undefined,
+      content: block.content,
+      path: block.path,
       isWrite: true,
       callId: `${baseCallId}:${index}`,
       toolStatus: status,
       toolName: 'apply_patch',
-      toolTitle: undefined,
+      toolTitle: block.path,
       lang: guessLanguage(block.path),
       view: 'diff' as const,
     }));
@@ -7132,9 +7163,15 @@ function extractFileRead(payload: unknown, eventType: string) {
       case 'read': {
         if (status === 'running') return null;
         const readPath = resolveReadWritePath(input, metadata, state);
+        const readLang = guessLanguageFromPath(readPath);
+        const readRange = resolveReadRange(input);
+        const readBody = extractReadFileBody(outputText);
         return {
-          component: ReadContent,
-          props: { input, output: outputText, error: errorText, status, metadata, state },
+          content: readBody,
+          lang: readLang,
+          variant: 'code' as const,
+          lineOffset: readRange.offset,
+          lineLimit: readRange.limit,
           callId,
           toolName: tool,
           toolStatus: status,
@@ -9669,13 +9706,11 @@ function connect() {
 
     fileReads.forEach((entry: any) => {
       if (entry.callId) {
-        // Use new floating windows API
-        fw.open(entry.callId, {
-          component: entry.component,
-          props: entry.props,
-          status: entry.toolStatus,
-          title: entry.title,
-          color: toolColor(entry.toolName),
+        const { callId, toolName, toolStatus, ...rest } = entry;
+        fw.open(callId, {
+          ...rest,
+          status: toolStatus,
+          color: toolColor(toolName),
         });
       }
     });

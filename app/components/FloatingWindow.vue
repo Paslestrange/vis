@@ -69,7 +69,7 @@ const windowStyle = computed(() => {
 
 const scrollClass = computed(() => {
   return {
-    'scroll-none': props.entry.scroll === 'none',
+    'scroll-none': props.entry.scroll === 'none' || props.entry.scroll === 'force',
   };
 });
 
@@ -81,36 +81,33 @@ function onClose() {
   emit('close', props.entry.key);
 }
 
-// Drag handling
-let dragStartX = 0;
-let dragStartY = 0;
-let windowStartX = 0;
-let windowStartY = 0;
+// Drag handling — incremental delta, listeners on window
+let lastPointerX = 0;
+let lastPointerY = 0;
 
 function onDragStart(e: PointerEvent) {
-  dragStartX = e.clientX;
-  dragStartY = e.clientY;
-  windowStartX = props.entry.x;
-  windowStartY = props.entry.y;
-  
-  const target = e.target as HTMLElement;
-  target.setPointerCapture(e.pointerId);
-  target.addEventListener('pointermove', onDragMove);
-  target.addEventListener('pointerup', onDragEnd);
+  e.preventDefault();
+  lastPointerX = e.clientX;
+  lastPointerY = e.clientY;
+  window.addEventListener('pointermove', onDragMove);
+  window.addEventListener('pointerup', onDragEnd);
 }
 
 function onDragMove(e: PointerEvent) {
-  const dx = e.clientX - dragStartX;
-  const dy = e.clientY - dragStartY;
-  props.entry.x = windowStartX + dx;
-  props.entry.y = windowStartY + dy;
+  const dx = e.clientX - lastPointerX;
+  const dy = e.clientY - lastPointerY;
+  lastPointerX = e.clientX;
+  lastPointerY = e.clientY;
+  const extent = props.manager.getExtent();
+  const w = props.entry.width || 600;
+  const h = props.entry.height || 400;
+  props.entry.x = Math.max(0, Math.min(props.entry.x + dx, extent.width - w));
+  props.entry.y = Math.max(0, Math.min(props.entry.y + dy, extent.height - h));
 }
 
-function onDragEnd(e: PointerEvent) {
-  const target = e.target as HTMLElement;
-  target.removeEventListener('pointermove', onDragMove);
-  target.removeEventListener('pointerup', onDragEnd);
-  target.releasePointerCapture(e.pointerId);
+function onDragEnd() {
+  window.removeEventListener('pointermove', onDragMove);
+  window.removeEventListener('pointerup', onDragEnd);
 }
 
 // Resize handling
@@ -178,7 +175,7 @@ function onResizeEnd(e: PointerEvent) {
             v-bind="entry.props || {}"
           />
         </template>
-        <CodeContent v-else :html="entry.resolvedHtml || entry.content || ''" />
+        <CodeContent v-else :html="entry.resolvedHtml || entry.content || ''" :variant="entry.variant" />
       </div>
       <Transition name="fade">
         <button

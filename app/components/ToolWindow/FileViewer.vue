@@ -17,8 +17,7 @@
       <CodeContent
         v-else
         :html="renderedHtml || rawHtml || ''"
-        :variant="isDiff ? 'diff' : isBinary ? 'binary' : 'code'"
-        :gutter-mode="viewerGutterMode"
+        :variant="viewerVariant"
       />
     </div>
   </div>
@@ -96,6 +95,13 @@ const viewerGutterMode = computed<'none' | 'single' | 'double'>(() => {
   if (props.isDiff) return 'double';
   if (props.gutterMode === 'none') return 'none';
   return 'single';
+});
+
+const viewerVariant = computed<'code' | 'diff' | 'binary' | 'plain'>(() => {
+  if (props.isDiff) return 'diff';
+  if (props.isBinary) return 'binary';
+  if (props.gutterMode === 'none') return 'plain';
+  return 'code';
 });
 
 const renderParams = computed<CodeRenderParams | null>(() => {

@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import CodeContent from '../CodeContent.vue';
 import { useCodeRender } from '../../utils/useCodeRender';
+import { guessLanguageFromPath } from './utils';
 
 const props = defineProps<{
   input?: Record<string, unknown>;
@@ -21,19 +22,36 @@ const displayContent = computed(() => {
 
 const isDiff = computed(() => {
   const c = displayContent.value;
-  return c.includes('diff --git') || c.includes('---') && c.includes('+++');
+  if (!c) return false;
+  return c.includes('diff --git') || (c.includes('---') && c.includes('+++')) || /^@@\s+-\d/.m.test(c);
 });
 
-const gutterMode = computed<'none' | 'single' | 'double'>(() => isDiff.value ? 'double' : 'single');
+const filePath = computed(() => {
+  const input = props.input;
+  if (typeof input?.filePath === 'string') return input.filePath;
+  if (typeof input?.path === 'string') return input.path;
+  return undefined;
+});
 
-const { html: renderedHtml } = useCodeRender(() => ({
-  code: displayContent.value,
-  lang: isDiff.value ? 'diff' : 'text',
-  theme: 'github-dark',
-  gutterMode: gutterMode.value,
-}));
+const lang = computed(() => guessLanguageFromPath(filePath.value));
+
+const { html: renderedHtml } = useCodeRender(() => {
+  const content = displayContent.value;
+  if (!content) return { code: '', lang: 'text', theme: 'github-dark', gutterMode: 'none' as const };
+  if (isDiff.value) {
+    // Use patch-based rendering for proper colorized diff
+    return {
+      code: '',
+      patch: content,
+      lang: lang.value,
+      theme: 'github-dark',
+      gutterMode: 'double' as const,
+    };
+  }
+  return { code: content, lang: 'text', theme: 'github-dark', gutterMode: 'single' as const };
+});
 </script>
 
 <template>
-  <CodeContent :html="renderedHtml" :variant="isDiff ? 'diff' : 'code'" :gutter-mode="gutterMode" />
+  <CodeContent :html="renderedHtml" :variant="isDiff ? 'diff' : 'code'" />
 </template>

@@ -7,18 +7,21 @@ import { computed } from 'vue';
 
 const props = defineProps<{
   html: string;
-  variant?: 'code' | 'diff' | 'message' | 'binary';
-  wrapMode?: 'default' | 'soft';
-  gutterMode?: 'none' | 'single' | 'double';
+  variant?: 'code' | 'diff' | 'message' | 'binary' | 'term' | 'plain';
 }>();
 
-const rootClass = computed(() => ({
-  'is-diff': props.variant === 'diff',
-  'is-message': props.variant === 'message',
-  'is-binary': props.variant === 'binary',
-  'wrap-soft': props.wrapMode === 'soft',
-  'no-gutter': props.gutterMode === 'none',
-}));
+const rootClass = computed(() => {
+  const v = props.variant ?? 'code';
+  return {
+    'is-diff': v === 'diff',
+    'is-message': v === 'message',
+    'is-binary': v === 'binary',
+    'is-term': v === 'term',
+    'is-plain': v === 'plain',
+    'no-gutter': v === 'message' || v === 'binary' || v === 'term' || v === 'plain',
+    'wrap-soft': v === 'message' || v === 'term',
+  };
+});
 </script>
 
 <style scoped>
@@ -100,10 +103,9 @@ const rootClass = computed(() => ({
   padding-left: 0;
 }
 
-/* wrap-soft / message */
+/* wrap-soft */
 
-.code-content.wrap-soft :deep(.line),
-.code-content.is-message :deep(.line) {
+.code-content.wrap-soft :deep(.line) {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;

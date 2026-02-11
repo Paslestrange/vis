@@ -114,11 +114,12 @@ export function useFloatingWindows() {
   }
 
   function getRandomPosition(targetWidth = 600, targetHeight = 400): { x: number; y: number } {
-    const maxX = Math.max(0, extent.width - targetWidth);
-    const maxY = Math.max(0, extent.height - targetHeight);
+    const padding = 20;
+    const maxX = Math.max(0, extent.width - targetWidth - padding);
+    const maxY = Math.max(0, extent.height - targetHeight - padding);
     return {
-      x: Math.floor(Math.random() * maxX),
-      y: Math.floor(Math.random() * maxY),
+      x: padding + Math.floor(Math.random() * maxX),
+      y: padding + Math.floor(Math.random() * maxY),
     };
   }
 
@@ -175,6 +176,12 @@ export function useFloatingWindows() {
       merged.x = pos.x;
       merged.y = pos.y;
     }
+
+    // Clamp position to visible bounds
+    const clampMaxX = Math.max(0, extent.width - (merged.width ?? 600));
+    const clampMaxY = Math.max(0, extent.height - (merged.height ?? 400));
+    merged.x = Math.max(0, Math.min(merged.x, clampMaxX));
+    merged.y = Math.max(0, Math.min(merged.y, clampMaxY));
 
     // Execute beforeOpen hook
     if (merged.beforeOpen) {

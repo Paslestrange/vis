@@ -6135,6 +6135,7 @@ async function renderReadHtmlFromApi(params: {
   lang: string;
   lineOffset?: number;
   lineLimit?: number;
+  fallbackText?: string;
 }): Promise<string> {
   const renderText = (text: string, gutterMode: 'none' | 'single' = 'none') =>
     renderWorkerHtml({
@@ -6177,9 +6178,20 @@ async function renderReadHtmlFromApi(params: {
       lineOffset: params.lineOffset,
       lineLimit: params.lineLimit,
     });
-  } catch (error) {
-    return renderText(`READ API failed: ${toErrorMessage(error)}`);
-  }
+   } catch (error) {
+     if (params.fallbackText) {
+       return renderWorkerHtml({
+         id: `read-${params.callId ?? 'unknown'}-${Date.now().toString(36)}`,
+         code: params.fallbackText,
+         lang: params.lang,
+         theme: 'github-dark',
+         gutterMode: 'single',
+         lineOffset: params.lineOffset,
+         lineLimit: params.lineLimit,
+       });
+     }
+     return renderText('File content unavailable');
+   }
 }
 
 function renderEditDiffHtml(params: {
@@ -7409,27 +7421,28 @@ function extractFileRead(payload: unknown, eventType: string) {
           title: toolPrefix('SHELL', titleDetail),
         };
       }
-      case 'read': {
-        if (status === 'running') return null;
-        const readPath = resolveReadWritePath(input, metadata, state);
-        const readLang = guessLanguageFromPath(readPath);
-        const readRange = resolveReadRange(input);
-        return {
-          content: () =>
-            renderReadHtmlFromApi({
-              callId,
-              path: readPath,
-              lang: readLang,
-              lineOffset: readRange.offset,
-              lineLimit: readRange.limit,
-            }),
-          variant: 'code' as const,
-          callId,
-          toolName: tool,
-          toolStatus: status,
-          title: toolPrefix('READ', readPath),
-        };
-      }
+       case 'read': {
+         if (status === 'running') return null;
+         const readPath = resolveReadWritePath(input, metadata, state);
+         const readLang = guessLanguageFromPath(readPath);
+         const readRange = resolveReadRange(input);
+         return {
+           content: () =>
+             renderReadHtmlFromApi({
+               callId,
+               path: readPath,
+               lang: readLang,
+               lineOffset: readRange.offset,
+               lineLimit: readRange.limit,
+               fallbackText: outputText,
+             }),
+           variant: 'code' as const,
+           callId,
+           toolName: tool,
+           toolStatus: status,
+           title: toolPrefix('READ', readPath),
+         };
+       }
       case 'grep': {
         if (status === 'running') return null;
         const grepCode = outputText ?? errorText ?? '';

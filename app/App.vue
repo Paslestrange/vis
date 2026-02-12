@@ -5459,7 +5459,27 @@ function formatSessionGraphDump(): string {
   lines.push(`  nodes: ${data.nodeCount}  sessions(unique): ${data.sessionCount}`);
   lines.push('');
 
-  // Group nodes by projectID
+  // Session Tree (directory-first model)
+  lines.push('## Session Tree');
+  lines.push('');
+
+  const treeEntries = Object.entries(data.tree).sort();
+  for (const [worktree, sandboxes] of treeEntries) {
+    lines.push(`### ${worktree} (worktree)`);
+
+    const sandboxEntries = Object.entries(sandboxes).sort();
+    for (const [sandbox, entry] of sandboxEntries) {
+      const projectIDStr = entry.projectID ? entry.projectID.substring(0, 8) + '...' : '(none)';
+      const branchStr = entry.branch ?? '(unknown)';
+      const sessionCountStr = entry.sessionCount;
+      lines.push(
+        `  ${sandbox} — projectID: ${projectIDStr} | branch: ${branchStr} | sessions: ${sessionCountStr}`
+      );
+    }
+    lines.push('');
+  }
+
+  // Sessions by project (grouped for reference)
   const byProject = new Map<string, typeof data.nodes>();
   for (const node of data.nodes) {
     const group = byProject.get(node.projectID) ?? [];
@@ -5467,147 +5487,87 @@ function formatSessionGraphDump(): string {
     byProject.set(node.projectID, group);
   }
 
-  for (const [projectID, nodes] of byProject) {
-    const projectRoot = data.projectRootByProjectID[projectID];
-    const directory = data.directoryByProjectID[projectID];
-    lines.push(`PROJECT  ${projectID}`);
-    if (projectRoot) lines.push(`  projectRoot: ${projectRoot}`);
-    if (directory) lines.push(`  directory: ${directory}`);
+  if (byProject.size > 0) {
+    lines.push('## Sessions by Project');
     lines.push('');
 
-    // Build parent->children map
-    const childrenOf = new Map<string, typeof nodes>();
-    const roots: typeof nodes = [];
-    for (const node of nodes) {
-      if (!node.parentID) {
-        roots.push(node);
-      } else {
-        const siblings = childrenOf.get(node.parentID) ?? [];
-        siblings.push(node);
-        childrenOf.set(node.parentID, siblings);
-      }
-    }
-
-    // Sort roots by timeUpdated desc
-    roots.sort((a, b) => (b.timeUpdated ?? 0) - (a.timeUpdated ?? 0));
-
-    function fmtTime(ts?: number) {
-      if (!ts) return '-';
-      return new Date(ts).toLocaleString();
-    }
-
-    function fmtStatus(s: string) {
-      if (s === 'busy') return '[BUSY]';
-      if (s === 'retry') return '[RETRY]';
-      if (s === 'idle') return '[idle]';
-      return `[${s}]`;
-    }
-
-    function printNode(node: typeof nodes[0], prefix: string, isLast: boolean) {
-      const connector = isLast ? '└── ' : '├── ';
-      const status = fmtStatus(node.status);
-      const retention = node.retention === 'ephemeral' ? ' (ephemeral)' : '';
-      const title = node.title ? `  "${node.title}"` : '';
-      const slug = node.slug ? `  slug=${node.slug}` : '';
-      lines.push(`${prefix}${connector}${node.sessionID}  ${status}${retention}${title}${slug}`);
-
-      const detail = `${prefix}${isLast ? '    ' : '│   '}`;
-      if (node.directory) lines.push(`${detail}directory: ${node.directory}`);
-      lines.push(`${detail}created: ${fmtTime(node.timeCreated)}  updated: ${fmtTime(node.timeUpdated)}`);
-      lines.push(`${detail}lastSeen: ${fmtTime(node.lastSeenAt)}  lastActive: ${fmtTime(node.lastActiveAt)}`);
-
-      const children = childrenOf.get(node.sessionID) ?? [];
-      children.sort((a, b) => (b.timeUpdated ?? 0) - (a.timeUpdated ?? 0));
-      for (let i = 0; i < children.length; i++) {
-        printNode(children[i], `${prefix}${isLast ? '    ' : '│   '}`, i === children.length - 1);
-      }
-    }
-
-    if (roots.length === 0) {
-      lines.push('  (no sessions)');
-    }
-    for (let i = 0; i < roots.length; i++) {
-      printNode(roots[i], '  ', i === roots.length - 1);
-    }
-
-    // Check for orphan children (parentID set but parent not in this project)
-    const knownIDs = new Set(nodes.map((n) => n.sessionID));
-    const orphans = nodes.filter((n) => n.parentID && !knownIDs.has(n.parentID));
-    if (orphans.length > 0) {
+    for (const [projectID, nodes] of byProject) {
+      const projectIDStr = projectID ? projectID.substring(0, 8) + '...' : '(none)';
+      lines.push(`### Project ${projectIDStr}`);
       lines.push('');
-      lines.push('  ORPHANS (parentID not found in project):');
-      for (const o of orphans) {
-        lines.push(`    ${o.sessionID}  parent=${o.parentID}  ${fmtStatus(o.status)}`);
-      }
-    }
 
-    lines.push('');
+      // Build parent->children map
+      const childrenOf = new Map<string, typeof nodes>();
+      const roots: typeof nodes = [];
+      for (const node of nodes) {
+        if (!node.parentID) {
+          roots.push(node);
+        } else {
+          const siblings = childrenOf.get(node.parentID) ?? [];
+          siblings.push(node);
+          childrenOf.set(node.parentID, siblings);
+        }
+      }
+
+      // Sort roots by timeUpdated desc
+      roots.sort((a, b) => (b.timeUpdated ?? 0) - (a.timeUpdated ?? 0));
+
+      function fmtTime(ts?: number) {
+        if (!ts) return '-';
+        return new Date(ts).toLocaleString();
+      }
+
+      function fmtStatus(s: string) {
+        if (s === 'busy') return '[BUSY]';
+        if (s === 'retry') return '[RETRY]';
+        if (s === 'idle') return '[idle]';
+        return `[${s}]`;
+      }
+
+      function printNode(node: typeof nodes[0], prefix: string, isLast: boolean) {
+        const connector = isLast ? '└── ' : '├── ';
+        const status = fmtStatus(node.status);
+        const retention = node.retention === 'ephemeral' ? ' (ephemeral)' : '';
+        const title = node.title ? `  "${node.title}"` : '';
+        const slug = node.slug ? `  slug=${node.slug}` : '';
+        lines.push(`${prefix}${connector}${node.sessionID}  ${status}${retention}${title}${slug}`);
+
+        const detail = `${prefix}${isLast ? '    ' : '│   '}`;
+        if (node.directory) lines.push(`${detail}directory: ${node.directory}`);
+        lines.push(`${detail}created: ${fmtTime(node.timeCreated)}  updated: ${fmtTime(node.timeUpdated)}`);
+        lines.push(`${detail}lastSeen: ${fmtTime(node.lastSeenAt)}  lastActive: ${fmtTime(node.lastActiveAt)}`);
+
+        const children = childrenOf.get(node.sessionID) ?? [];
+        children.sort((a, b) => (b.timeUpdated ?? 0) - (a.timeUpdated ?? 0));
+        for (let i = 0; i < children.length; i++) {
+          printNode(children[i], `${prefix}${isLast ? '    ' : '│   '}`, i === children.length - 1);
+        }
+      }
+
+      if (roots.length === 0) {
+        lines.push('  (no sessions)');
+      }
+      for (let i = 0; i < roots.length; i++) {
+        printNode(roots[i], '  ', i === roots.length - 1);
+      }
+
+      // Check for orphan children (parentID set but parent not in this project)
+      const knownIDs = new Set(nodes.map((n) => n.sessionID));
+      const orphans = nodes.filter((n) => n.parentID && !knownIDs.has(n.parentID));
+      if (orphans.length > 0) {
+        lines.push('');
+        lines.push('  ORPHANS (parentID not found in project):');
+        for (const o of orphans) {
+          lines.push(`    ${o.sessionID}  parent=${o.parentID}  ${fmtStatus(o.status)}`);
+        }
+      }
+
+      lines.push('');
+    }
   }
 
-   // Directory -> Project candidates
-   const dirs = Object.keys(data.projectIDsByDirectory).sort();
-   if (dirs.length > 0) {
-     lines.push('DIRECTORY -> PROJECT CANDIDATES');
-     lines.push('');
-     for (const dir of dirs) {
-       const projectIDs = data.projectIDsByDirectory[dir] ?? [];
-       const marker = projectIDs.length === 1 ? '' : '  [ambiguous]';
-       lines.push(`  ${dir} → ${projectIDs.join(', ')}${marker}`);
-     }
-     lines.push('');
-   }
-
-   // Project List
-   if (data.projectList && data.projectList.length > 0) {
-     lines.push('PROJECT LIST');
-     lines.push('');
-     for (const project of data.projectList) {
-       lines.push(`  ${project.id}`);
-       if (project.worktree) lines.push(`    worktree: ${project.worktree}`);
-       if (project.sandboxes && project.sandboxes.length > 0) {
-         lines.push(`    sandboxes: ${project.sandboxes.join(', ')}`);
-       }
-     }
-     lines.push('');
-   }
-
-   // Worktrees by Project Root
-   if (data.worktreesByProjectRoot && Object.keys(data.worktreesByProjectRoot).length > 0) {
-     lines.push('WORKTREES BY PROJECT ROOT');
-     lines.push('');
-     for (const [root, worktrees] of Object.entries(data.worktreesByProjectRoot)) {
-       lines.push(`  ${root}`);
-       for (const wt of worktrees) {
-         lines.push(`    - ${wt}`);
-       }
-     }
-     lines.push('');
-   }
-
-   // VCS Info by Directory
-   if (data.vcsByDirectory && Object.keys(data.vcsByDirectory).length > 0) {
-     lines.push('VCS INFO (CONFIRMED)');
-     lines.push('');
-     for (const [dir, info] of Object.entries(data.vcsByDirectory)) {
-       lines.push(`  ${dir}`);
-       lines.push(`    branch: ${info.branch}`);
-     }
-     lines.push('');
-   }
-
-   // Pending VCS
-   if (data.pendingVcs && Object.keys(data.pendingVcs).length > 0) {
-     lines.push('VCS INFO (PENDING)');
-     lines.push('');
-     for (const [dir, info] of Object.entries(data.pendingVcs)) {
-       lines.push(`  ${dir}`);
-       lines.push(`    branch: ${info.branch}`);
-     }
-     lines.push('');
-   }
-
-   return lines.join('\n');
- }
+  return lines.join('\n');
+}
 
 function openDebugSessionViewer() {
   const key = 'debug:session-graph';

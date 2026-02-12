@@ -2,40 +2,67 @@
 
 ## Data Model
 
+The session graph uses a **directory-first tree model**:
+
 ```
-ProjectID
- └─ ProjectDirectory (basedir/root)
-     └─ Directory (active/worktree)
-     └─ Session (root)
-         └─ Session (child)  ← subagent sessions
+Worktree (project root)
+ └─ Sandbox (directory)
+     ├─ projectID (session namespace, assigned from session.created)
+     ├─ branch (VCS branch name)
+     └─ Sessions
+         ├─ Session (root)
+         │   └─ Session (child)  ← subagent sessions
+         └─ Session (root)
 ```
 
-### ProjectDirectory
+### Tree Structure
+
+The primary data structure is a nested map:
+
+```typescript
+tree: Map<worktree, Map<sandbox, SandboxEntry>>
+
+type SandboxEntry = {
+  worktree: string;    // parent worktree directory
+  sandbox: string;     // this sandbox's directory
+  projectID?: string;  // session namespace (set only by session.created)
+  branch?: string;     // VCS branch name
+};
+```
+
+**Key insight**: Directory is the first-class citizen. ProjectID is just a session namespace.
+
+### Worktree
 
 The project root directory, selected via the top-left dropdown. Typically the root of a git repository.
 
 - Example: `/home/user/prog/vis`
-- The API exposes this as `ProjectInfo.worktree`, which is a misleading field name.
+- The API exposes this as `ProjectInfo.worktree`.
+- Maps to `tree[worktree]` in the session graph.
 
-### Directory
+### Sandbox
 
-The working directory, selected via the middle dropdown. Either the ProjectDirectory itself or a git worktree path.
+A directory under a worktree. Can be:
+- The worktree itself (`sandbox == worktree`)
+- A git worktree (`/path/to/.git/worktrees/...`)
+- A sandbox directory (`ProjectInfo.sandboxes[]`)
 
 - Example: `/home/user/prog/vis`, `/home/user/.local/share/opencode/worktree/.../neon-canyon`
 - Passed to the API as `?directory=` query parameter or `x-opencode-directory` header.
-- May map to one or more projectIDs as candidate contexts.
-- Use it as runtime context, not as an authoritative project identity.
+- Maps to `tree[worktree][sandbox]` in the session graph.
 
 ### ProjectID
 
-An identifier assigned by OpenCode to each project (SHA hash string).
+An identifier assigned by OpenCode to each project (SHA hash string). **Only assigned from `session.created` SSE events.**
 
 - Example: `95c06a8380e966d762e14efc434b1111b7169ab7`
-- Maps to one authoritative project root directory (`projectDirectory`).
+- Stored on the sandbox entry: `tree[worktree][sandbox].projectID`
+- Acts as a session namespace: all sessions under that sandbox share the same projectID.
+- Multiple sandboxes under the same worktree can have different projectIDs.
 
 ### Session
 
-A conversation session belonging to a specific directory (= projectID).
+A conversation session belonging to a specific sandbox (and thus a specific projectID).
 
 - Sessions without a `parentID` are **root sessions**, shown in the top-right session list.
 - Sessions with a `parentID` are **child sessions**, created by subagents.
@@ -44,28 +71,26 @@ A conversation session belonging to a specific directory (= projectID).
 
 Most API calls require a `?directory=` parameter or `x-opencode-directory` header to specify the directory. Without it, the server defaults to its startup working directory, which is not robust.
 
-### Resolving ProjectID
+### Building the Tree from APIs
 
-`GET /project` returns all projects, but the `ProjectInfo.worktree` field is **unreliable** — multiple projectIDs can share the same worktree value.
+The session graph is built from two primary APIs:
 
-To resolve project context from a directory, use these runtime APIs:
+| API | Purpose | Tree Update |
+|-----|---------|-------------|
+| `GET /project` | List all projects with worktrees and sandboxes | Create `tree[worktree][sandbox]` entries for each project's worktree and sandboxes |
+| `GET /session?directory=X` | List sessions for a directory with their projectID | Set `tree[worktree][sandbox].projectID` from session data |
 
-| API | Purpose |
-|-----|---------|
-| `GET /project/current?directory=X` | Returns the active project context for that directory |
-| `GET /session?directory=X` | Returns sessions scoped by directory with their `projectID` |
+**Important**: The `/project` API returns `projectID`, but this is **unreliable** for tree building. Only use the `worktree` and `sandboxes` fields. ProjectID is assigned only from `session.created` SSE events.
 
-Data from `/project` should be used to build project root candidates (`projectDirectory`), especially from `worktree`.
+### Enumerating Sandboxes
 
-### Enumerating Candidate Directories
+A single worktree may have multiple sandboxes:
 
-A single ProjectDirectory may have multiple directories (worktrees):
-
-- The ProjectDirectory itself (`ProjectInfo.worktree`)
+- The worktree itself (`ProjectInfo.worktree`)
 - Git worktrees (`GET /experimental/worktree?directory=X`)
 - Sandboxes (`ProjectInfo.sandboxes[]`)
 
-These lists come from the `/project` and `/experimental/worktree` APIs.
+These lists come from the `/project` and `/experimental/worktree` APIs and are synced into `tree[worktree]`.
 
 ## SSE Events
 
@@ -73,46 +98,72 @@ These lists come from the `/project` and `/experimental/worktree` APIs.
 
 Session-related events:
 
-| Event | Key Fields |
-|-------|-----------|
-| `session.updated` | `info.id`, `info.projectID`, `info.directory`, `info.title`, `info.time` |
-| `session.status` | `sessionID`, `status.type` (`busy` / `idle` / `retry`) |
-| `session.deleted` | `sessionID` |
-| `project.updated` | `id`, `worktree`, `sandboxes[]` — worktree/sandboxes may be polluted |
+| Event | Key Fields | Tree Update |
+|-------|-----------|-------------|
+| `session.created` | `info.id`, `info.projectID`, `info.directory` | **ONLY source of projectID**: Set `tree[worktree][directory].projectID = info.projectID` |
+| `session.updated` | `info.id`, `info.projectID`, `info.directory`, `info.title`, `info.time` | Update session metadata |
+| `session.status` | `sessionID`, `status.type` (`busy` / `idle` / `retry`) | Update session status |
+| `session.deleted` | `sessionID` | Remove session |
+| `project.updated` | `id`, `worktree`, `sandboxes[]` | Sync sandboxes: ensure all `sandboxes[]` exist under `tree[worktree]`, remove stale ones. **Ignore `id` field.** |
+| `worktree.ready` | `directory`, `branch` | Set `tree[worktree][directory].branch = branch` |
 
-`session.updated` events carry `projectID` and `directory`, making them suitable for candidate indexing and runtime session graph updates.
-
-`project.updated` data can update project root metadata (`projectId -> projectDirectory`), but should not force a strict reverse one-to-one mapping.
+**Critical**: Only `session.created` carries a reliable `projectID`. Use it to assign the projectID to the sandbox. Other events should not attempt to resolve or assign projectID.
 
 ## Session Graph (sessionGraph)
 
 `app/utils/sessionGraph.ts` is the **single source of truth (SSOT)** for:
+- The directory-first tree: `tree[worktree][sandbox]` with projectID and branch
 - All known sessions and their hierarchy
-- Project metadata (worktrees, sandboxes)
-- Worktree lists per project root
-- VCS branch information per directory
 - Session status (busy/idle/retry)
 
-### Nodes
+### Tree Structure
+
+The primary data structure:
+
+```typescript
+tree: Map<worktree, Map<sandbox, SandboxEntry>>
+
+type SandboxEntry = {
+  worktree: string;
+  sandbox: string;
+  projectID?: string;  // Only set from session.created
+  branch?: string;     // From worktree.ready or /meta
+};
+```
+
+### Sessions
 
 Each session is stored as a `SessionNode`:
 
 | Field | Description |
 |-------|-------------|
 | `sessionID` | Session ID (`ses_...`) |
-| `projectID` | Owning projectID |
-| `directory` | Owning directory |
+| `projectID` | Owning projectID (from sandbox entry) |
+| `directory` | Owning directory (sandbox) |
 | `parentID` | Parent session ID (`undefined` for root sessions) |
 | `retention` | `persistent` (normal) or `ephemeral` (temporary subagent sessions) |
 
-### Mapping
+Sessions are keyed by `projectID:sessionID` in `nodesByKey`. A reverse index `sessionIndex: Map<sessionID, sandboxDir>` enables O(1) lookup by sessionID alone.
 
-Mapping is modeled in two layers:
+### Public API
 
-- `directoryByProjectID`: `projectID -> projectDirectory` (authoritative)
-- `projectIDsByDirectory`: `directory -> projectID[]` (candidate index; may be ambiguous)
+Key methods for tree and session management:
 
-Use `setProjectDirectory(projectID, directory)` for the authoritative forward mapping and candidate-index updates for reverse lookup.
+**Tree operations:**
+- `ensureSandbox(worktree, sandbox)` → creates tree entries if missing
+- `getSandbox(worktree, sandbox)` → returns SandboxEntry or undefined
+- `getWorktreeList()` → returns all worktree roots
+- `getSandboxList(worktree)` → returns all sandboxes under worktree
+- `setSandboxProjectID(sandbox, projectID)` → assigns projectID to sandbox
+- `setSandboxBranch(sandbox, branch)` → sets branch on sandbox
+- `syncSandboxes(worktree, sandboxDirs)` → from project.updated: sync sandbox list
+
+**Session operations:**
+- `upsertSession(info, options)` → adds/updates session, auto-creates sandbox if needed
+- `removeSession(sessionID, projectID?)` → removes session
+- `getSession(sessionID, projectID?)` → retrieves session (uses sessionIndex for O(1) lookup)
+- `getRootSessions(query)` → filters by directory
+- `getProjectIDForSession(sessionID)` → looks up projectID via sessionIndex
 
 ### Computed State in App.vue
 
@@ -120,9 +171,10 @@ The following are **computed from the graph** and update reactively:
 
 | Computed | Source | Purpose |
 |----------|--------|---------|
-| `projects` | `sessionGraphStore.getProjects()` | All known projects with worktrees/sandboxes |
-| `worktrees` | `sessionGraphStore.getWorktrees(projectDirectory)` | Worktree list for selected project |
-| `worktreeMetaByDir` | `sessionGraphStore.getVcsInfo(dir)` for each worktree | VCS branch info per directory |
+| `projects` | `sessionGraphStore.getWorktreeList()` | All known worktree roots |
+| `worktrees` | `sessionGraphStore.getSandboxList(projectDirectory)` | Sandbox list for selected worktree |
+| `worktreeMetaByDir` | `sessionGraphStore.getSandbox(pd, dir).branch` for each sandbox | VCS branch info per directory |
+| `selectedProjectId` | `sessionGraphStore.getSandbox(projectDirectory, activeDirectory).projectID` | **Computed** from tree (not writable) |
 
 ### Writable Refs in App.vue
 
@@ -130,32 +182,31 @@ These remain **writable refs** for UI state:
 
 | Ref | Purpose |
 |-----|---------|
-| `selectedProjectId` | User's selected project (may be empty) |
-| `activeDirectory` | User's selected worktree/directory |
+| `projectDirectory` | User's selected worktree root |
+| `activeDirectory` | User's selected sandbox/directory |
 | `selectedSessionId` | User's selected session |
-| `projectDirectory` | User's selected project root |
 
 ### Session Fetching Flow
 
 ```
-1. collectProjectWorktreeDirectories()    ← enumerate candidate directories
-2. bootstrapSessionGraph(directories)     ← for each directory:
-   a. fetchCurrentProject(directory)      ← resolve correct projectID
-   b. setProjectDirectory(projectID, dir) ← establish project root mapping
-   c. listSessions(?directory=X)          ← fetch session list
-   d. upsertSessions(sessions)            ← register in graph
-3. SSE events                             ← real-time updates
-   a. session.updated → upsertSession + add directory/project candidate link
-   b. session.status  → status update
+1. Bootstrap from /project API
+   a. For each project: syncSandboxes(worktree, sandboxes)
+   b. For each worktree: fetchSessions(worktree)
+   c. For each session: upsertSession + setSandboxProjectID
+2. SSE events (real-time updates)
+   a. project.updated → syncSandboxes(worktree, sandboxes)
+   b. session.created → setSandboxProjectID + upsertSession
+   c. worktree.ready → setSandboxBranch
+   d. session.status → status update
 ```
 
 ### Watcher Architecture
 
-Replaced the previous cascade of watchers with **focused atomic watchers**:
+Focused atomic watchers:
 
+- `watch(projectDirectory)` → fetch worktrees, refresh sessions
 - `watch(activeDirectory)` → fetch worktree metadata, reload todos
 - `watch(selectedSessionId)` → restore composer draft, reload todos
-- `watch(projectDirectory)` → fetch worktrees, update graph
 - `watch(sessionGraphVersion)` → trigger computed updates (projects, worktrees, etc.)
 
-Each watcher is independent and handles a single concern, avoiding cascading side effects.
+Each watcher is independent and handles a single concern. No circular dependencies.

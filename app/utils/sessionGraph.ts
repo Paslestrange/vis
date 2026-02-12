@@ -469,7 +469,12 @@ export function createSessionGraphStore() {
     });
     const prefix = `${projectID}:`;
     statusByKey.forEach((status, key) => {
-      if (!key.startsWith(prefix)) return;
+      const node = nodesByKey.get(key);
+      const mappedProjectID = node?.directory
+        ? getSandboxByDirectory(node.directory)?.projectID
+        : undefined;
+      const belongsToSyncedProject = key.startsWith(prefix) || mappedProjectID === projectID;
+      if (!belongsToSyncedProject) return;
       if (busyKeys.has(key)) return;
       if (status === 'busy' || status === 'retry') {
         statusByKey.set(key, 'idle');

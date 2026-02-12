@@ -730,7 +730,11 @@ const providersLoading = ref(false);
 const providersFetchCount = ref(0);
 const agentsLoading = ref(false);
 const commandsLoading = ref(false);
-const selectedProjectId = ref('');
+const selectedProjectId = computed(() => {
+  void sessionGraphVersion.value;
+  const sandbox = sessionGraphStore.getSandbox(projectDirectory.value, activeDirectory.value);
+  return sandbox?.projectID ?? '';
+});
 const activeDirectory = ref('');
 const selectedSessionId = ref('');
 const projectDirectory = ref('');
@@ -789,19 +793,10 @@ const baseWorktreeOptions = computed(() => {
   return Array.from(unique);
 });
 
-const effectiveProjectId = computed(() => {
-  void sessionGraphVersion.value;
-  const selected = selectedProjectId.value.trim();
-  if (selected) return selected;
-  const directory = activeDirectory.value.trim();
-  if (!directory) return '';
-  return resolveProjectIdForDirectorySelection(directory || undefined);
-});
-
 const sessions = computed(() => {
   void sessionGraphVersion.value;
   const directory = activeDirectory.value.trim();
-  const projectID = effectiveProjectId.value;
+  const projectID = selectedProjectId.value.trim();
   return sessionGraphStore.getRootSessions({
     projectID: projectID || undefined,
     directory: directory || undefined,
@@ -810,7 +805,7 @@ const sessions = computed(() => {
 
 const sessionParentById = computed(() => {
   void sessionGraphVersion.value;
-  const projectID = effectiveProjectId.value;
+  const projectID = selectedProjectId.value.trim();
   return sessionGraphStore.getParentMap(projectID || undefined);
 });
 
@@ -2391,41 +2386,28 @@ function markSessionGraphChanged() {
   pruneOrphanedComposerDrafts();
 }
 
-function resolveProjectIdForDirectorySelection(directory?: string) {
+function resolveProjectIdForDirectory(directory?: string) {
   const normalized = directory?.trim() || '';
   if (!normalized) return '';
   return sessionGraphStore.resolveProjectIDForDirectory(normalized);
 }
 
-function resolveProjectDirectoryForProjectId(projectId?: string) {
-  const normalized = projectId?.trim() || '';
-  if (!normalized) return '';
-  return sessionGraphStore.getProjectRootForProject(normalized);
-}
-
 function setSessions(list: SessionInfo[], directoryContext?: string) {
   const next = Array.isArray(list) ? list : [];
   const contextDirectory = (directoryContext ?? activeDirectory.value ?? '').trim();
-  const projectIdsFromScope = new Set<string>();
+  const projectIDHint =
+    selectedProjectId.value ||
+    sessionGraphStore.resolveProjectIDForDirectory(contextDirectory || undefined);
   next.forEach((session) => {
-    if (session.projectID) projectIdsFromScope.add(session.projectID);
-    if (session.projectID && session.directory) {
-      sessionGraphStore.addDirectoryCandidate(session.directory, session.projectID);
+    const directory = session.directory?.trim() || contextDirectory;
+    if (session.projectID && directory) {
+      sessionGraphStore.setSandboxProjectID(directory, session.projectID);
     }
-  });
-  if (contextDirectory) {
-    projectIdsFromScope.forEach((projectID) => {
-      sessionGraphStore.setProjectDirectory(projectID, contextDirectory);
+    sessionGraphStore.upsertSession(session, {
+      projectIDHint: session.projectID || projectIDHint || undefined,
+      directoryHint: directory || undefined,
+      retention: session.parentID ? 'ephemeral' : 'persistent',
     });
-  }
-  const projectID =
-    selectedProjectId.value
-    || resolveProjectIdForDirectorySelection(contextDirectory || undefined)
-    || sessionGraphStore.resolveProjectIDForDirectory(contextDirectory);
-  sessionGraphStore.upsertSessions(next, {
-    projectIDHint: projectID || undefined,
-    directoryHint: contextDirectory || undefined,
-    retention: 'persistent',
   });
   markSessionGraphChanged();
 }
@@ -2473,7 +2455,7 @@ async function fetchSessionChildren(rootSessionId: string, directory?: string, p
     const resolvedProjectID =
       projectID ||
       resolveProjectIdForSession(rootSessionId) ||
-      resolveProjectIdForDirectorySelection(instanceDirectory || undefined);
+      resolveProjectIdForDirectory(instanceDirectory || undefined);
     for (const child of data) {
       if (!child || typeof child.id !== 'string') continue;
       const parentId = typeof child.parentID === 'string' ? child.parentID : rootSessionId;
@@ -2514,7 +2496,14 @@ async function fetchProjects(directory?: string) {
   projectError.value = '';
   try {
     const data = (await opencodeApi.listProjects(OPENCODE_BASE_URL, directory)) as ProjectInfo[];
-    sessionGraphStore.setProjects(Array.isArray(data) ? data : []);
+    const list = Array.isArray(data) ? data : [];
+    list.forEach((project) => {
+      const worktree = typeof project.worktree === 'string' ? project.worktree : '';
+      const sandboxes = Array.isArray(project.sandboxes)
+        ? project.sandboxes.filter((entry): entry is string => typeof entry === 'string')
+        : [];
+      sessionGraphStore.syncSandboxes(worktree, sandboxes);
+    });
     markSessionGraphChanged();
   } catch (error) {
     projectError.value = `Project load failed: ${toErrorMessage(error)}`;
@@ -2522,20 +2511,12 @@ async function fetchProjects(directory?: string) {
 }
 
 function upsertProject(next: ProjectInfo) {
-  sessionGraphStore.upsertProjectEntry(next);
-  projectSessionDirectories(next).forEach((candidate) => {
-    sessionGraphStore.addDirectoryCandidate(candidate, next.id);
-  });
+  const worktree = typeof next.worktree === 'string' ? next.worktree : '';
+  const sandboxes = Array.isArray(next.sandboxes)
+    ? next.sandboxes.filter((entry): entry is string => typeof entry === 'string')
+    : [];
+  sessionGraphStore.syncSandboxes(worktree, sandboxes);
   markSessionGraphChanged();
-}
-
-async function fetchCurrentProject(directory?: string) {
-  try {
-    const data = (await opencodeApi.getCurrentProject(OPENCODE_BASE_URL, directory)) as ProjectInfo;
-    return data && typeof data.id === 'string' ? data : null;
-  } catch {
-    return null;
-  }
 }
 
 function resolveDirectory(directory: string, baseDir: string) {
@@ -2623,7 +2604,7 @@ async function fetchWorktrees(directory?: string) {
     if (baseDir && !list.includes(baseDir)) list.unshift(baseDir);
     const current = activeDirectory.value;
     if (current && !list.includes(current)) list.unshift(current);
-    sessionGraphStore.setWorktrees(baseDir, list);
+    sessionGraphStore.syncSandboxes(baseDir, list);
     markSessionGraphChanged();
   } catch (error) {
     worktreeError.value = `Worktree load failed: ${toErrorMessage(error)}`;
@@ -2640,7 +2621,7 @@ async function fetchWorktreeMeta(directory: string) {
     const data = (await opencodeApi.getVcsInfo(OPENCODE_BASE_URL, trimmed)) as VcsInfo;
     if (!data || typeof data.branch !== 'string') return;
     if (worktreeMetaRequestIdByDir.get(normalized) !== requestId) return;
-    sessionGraphStore.setVcsInfo(normalized, { branch: data.branch });
+    sessionGraphStore.setSandboxBranch(normalized, data.branch);
     markSessionGraphChanged();
   } catch {
     return;
@@ -2667,29 +2648,25 @@ function appendWorktreeDirectory(directory: string) {
   if (!trimmed) return;
   const pd = projectDirectory.value?.trim();
   if (!pd) return;
-  sessionGraphStore.appendWorktree(pd, trimmed);
+  sessionGraphStore.ensureSandbox(pd, trimmed);
   markSessionGraphChanged();
 }
 
 function storePendingWorktreeMeta(directory: string, branch?: string) {
   if (!branch) return;
   const normalized = normalizeDirectory(directory);
-  sessionGraphStore.setPendingVcs(normalized, { branch });
+  sessionGraphStore.setSandboxBranch(normalized, branch);
 }
 
 async function handleWorktreeReady(event: { directory: string; branch?: string }) {
   const directory = event.directory.trim();
   if (!directory) return;
-  storePendingWorktreeMeta(directory, event.branch);
-  const selectedProject = selectedProjectId.value;
-  if (!selectedProject) return;
-  const project = sessionGraphStore.getProjectEntry(selectedProject) as ProjectInfo | undefined;
-  if (!project) return;
-  const candidates = projectSessionDirectories(project);
-  const normalized = normalizeDirectory(directory);
-  const matchesProject = candidates.some((entry) => normalizeDirectory(entry) === normalized);
-  if (!matchesProject) return;
-  appendWorktreeDirectory(directory);
+  const worktree = projectDirectory.value?.trim() || directory;
+  sessionGraphStore.ensureSandbox(worktree, directory);
+  if (event.branch) {
+    sessionGraphStore.setSandboxBranch(directory, event.branch);
+  }
+  markSessionGraphChanged();
 }
 
 async function createWorktree() {
@@ -2705,7 +2682,7 @@ async function createWorktree() {
       projectDirectory.value,
     )) as WorktreeInfo;
     if (data && typeof data.directory === 'string') {
-      sessionGraphStore.appendWorktree(projectDirectory.value!, data.directory);
+      sessionGraphStore.ensureSandbox(projectDirectory.value, data.directory);
       markSessionGraphChanged();
       activeDirectory.value = data.directory;
     }
@@ -2756,7 +2733,10 @@ async function createNewSession() {
         upsertSessionGraph(data);
       }
       selectedSessionId.value = data.id;
-      if (data.projectID) selectedProjectId.value = data.projectID;
+      if (data.projectID) {
+        sessionGraphStore.setSandboxProjectID(activeDirectory.value || data.directory || '', data.projectID);
+        markSessionGraphChanged();
+      }
       resolveDefaultAgentModel();
       persistComposerDraftForCurrentContext();
       if (data.directory) activeDirectory.value = data.directory;
@@ -2797,7 +2777,10 @@ async function handleForkMessage(payload: { sessionId: string; messageId: string
     if (data && typeof data.id === 'string') {
       upsertSessionGraph(data);
       seedForkedSessionComposerDraft(payload, data);
-      if (data.projectID) selectedProjectId.value = data.projectID;
+      if (data.projectID) {
+        sessionGraphStore.setSandboxProjectID(activeDirectory.value || data.directory || '', data.projectID);
+        markSessionGraphChanged();
+      }
       if (data.directory) activeDirectory.value = data.directory;
       selectedSessionId.value = data.id;
       void refreshSessionsForDirectory(data.directory || activeDirectory.value || undefined);
@@ -2831,63 +2814,23 @@ async function handleProjectDirectorySelect(directory: string) {
   isProjectPickerOpen.value = false;
   if (!directory) return;
   projectDirectory.value = directory;
-  activeDirectory.value = directory;
-  selectedSessionId.value = '';
-  const current = await fetchCurrentProject(directory);
-  await fetchProjects();
-  if (current) {
-    upsertProject(current);
-    selectedProjectId.value = current.id;
-  } else if (projects.value.length > 0) {
-    const match = sessionGraphStore.getProjects().find((project) => project.worktree === directory) as ProjectInfo | undefined;
-    if (match) selectedProjectId.value = match.id;
-  }
-  await fetchWorktrees(directory);
-  await refreshSessionsForDirectory(directory);
-  if (selectedProjectId.value) {
-    sessionGraphStore.setProjectRoot(selectedProjectId.value, projectDirectory.value || directory);
-    sessionGraphStore.setProjectDirectory(selectedProjectId.value, activeDirectory.value || directory);
-    markSessionGraphChanged();
-  }
 }
 
 function collectProjectWorktreeDirectories() {
-  return sessionGraphStore.collectProjectDirectories();
+  return sessionGraphStore.getWorktreeList();
 }
 
-async function bootstrapSessionGraph(directories: string[]) {
+async function bootstrapSessionGraph() {
+  const directories = collectProjectWorktreeDirectories();
   const uniqueDirectories = Array.from(new Set(directories.map((dir) => dir.trim()).filter(Boolean)));
   await Promise.all(
     uniqueDirectories.map(async (directory) => {
-      const current = await fetchCurrentProject(directory);
-      if (current) {
-        upsertProject(current);
-        const projectRoot = current.worktree?.trim() || directory;
-        sessionGraphStore.setProjectRoot(current.id, projectRoot);
-      }
       const roots = await listSessionsByDirectory({
         instanceDirectory: directory,
         roots: true,
         limit: ROOT_SESSION_BOOTSTRAP_LIMIT,
       });
-      const fallbackProjectId = current?.id || resolveProjectIdForDirectorySelection(directory);
-      if (fallbackProjectId) {
-        sessionGraphStore.setProjectDirectory(fallbackProjectId, directory);
-      }
-      sessionGraphStore.upsertSessions(roots, {
-        projectIDHint: fallbackProjectId || undefined,
-        directoryHint: directory,
-        retention: 'persistent',
-      });
-      roots.forEach((session) => {
-        if (!session.projectID) return;
-        sessionGraphStore.setProjectDirectory(session.projectID, directory);
-      });
-      roots.forEach((session) => {
-        if (session.projectID && session.directory) {
-          sessionGraphStore.addDirectoryCandidate(session.directory, session.projectID);
-        }
-      });
+      setSessions(roots, directory);
       const statusMap = (await opencodeApi.getSessionStatusMap(OPENCODE_BASE_URL, undefined, {
         instanceDirectory: directory,
       })) as Record<string, { type?: string }>;
@@ -2898,10 +2841,7 @@ async function bootstrapSessionGraph(directories: string[]) {
           statusEntries.push([sessionId, type]);
         }
       });
-      const resolvedProjectId =
-        fallbackProjectId ||
-        roots.find((session) => typeof session.projectID === 'string' && session.projectID)?.projectID ||
-        '';
+      const resolvedProjectId = sessionGraphStore.resolveProjectIDForDirectory(directory);
       if (resolvedProjectId) {
         syncSessionStatuses(statusEntries, resolvedProjectId);
       }
@@ -2915,9 +2855,8 @@ function finalizeSelectionAfterBootstrap() {
   const initialSessionId = initialQuery.sessionId.trim();
   if (initialProjectId && initialSessionId) {
     const initialSession = sessionGraphStore.getSession(initialSessionId, initialProjectId);
-    const rootDirectory = resolveProjectDirectoryForProjectId(initialProjectId);
+    const rootDirectory = sessionGraphStore.getProjectRootForProject(initialProjectId);
     if (rootDirectory) projectDirectory.value = rootDirectory;
-    selectedProjectId.value = initialProjectId;
     if (initialSession) {
       const targetDirectory = initialSession.directory?.trim();
       if (targetDirectory) {
@@ -2926,17 +2865,11 @@ function finalizeSelectionAfterBootstrap() {
         activeDirectory.value = rootDirectory;
       }
       selectedSessionId.value = initialSessionId;
-      if (selectedProjectId.value && activeDirectory.value) {
-        sessionGraphStore.setProjectDirectory(selectedProjectId.value, activeDirectory.value);
-      }
       markSessionGraphChanged();
       return;
     }
     if (rootDirectory) {
       activeDirectory.value = rootDirectory;
-      if (selectedProjectId.value) {
-        sessionGraphStore.setProjectDirectory(selectedProjectId.value, activeDirectory.value);
-      }
       markSessionGraphChanged();
       return;
     }
@@ -2946,15 +2879,6 @@ function finalizeSelectionAfterBootstrap() {
   if (defaultRootDirectory) {
     projectDirectory.value = defaultRootDirectory;
     if (!activeDirectory.value) activeDirectory.value = defaultRootDirectory;
-    const projectID =
-      selectedProjectId.value
-      || resolveProjectIdForDirectorySelection(activeDirectory.value || undefined)
-      || resolveProjectIdForDirectorySelection(defaultRootDirectory);
-    if (projectID) selectedProjectId.value = projectID;
-  }
-
-  if (selectedProjectId.value && activeDirectory.value) {
-    sessionGraphStore.setProjectDirectory(selectedProjectId.value, activeDirectory.value);
   }
 
   markSessionGraphChanged();
@@ -2976,7 +2900,7 @@ async function reconcileSessionGraphFromScopes() {
           statusEntries.push([sessionId, type]);
         }
       });
-      const projectID = resolveProjectIdForDirectorySelection(directory);
+      const projectID = resolveProjectIdForDirectory(directory);
       if (!projectID) return;
       syncSessionStatuses(statusEntries, projectID);
     }),
@@ -2992,8 +2916,7 @@ async function bootstrapSelections() {
   bootstrapReady.value = false;
   try {
     await fetchProjects();
-    const allDirectories = collectProjectWorktreeDirectories();
-    await bootstrapSessionGraph(allDirectories);
+    await bootstrapSessionGraph();
     finalizeSelectionAfterBootstrap();
     if (projectDirectory.value) {
       await fetchWorktrees(projectDirectory.value);
@@ -3175,7 +3098,7 @@ async function fetchSessionStatus(directory?: string) {
       }
     });
     const resolvedProjectId =
-      resolveProjectIdForDirectorySelection(directoryAtRequest || undefined)
+      resolveProjectIdForDirectory(directoryAtRequest || undefined)
       || selectedProjectId.value;
     if (resolvedProjectId) {
       syncSessionStatuses(nextEntries, resolvedProjectId);
@@ -5969,23 +5892,16 @@ watch(
 
     if (pdChanged) {
       selectedSessionId.value = '';
-      const currentSelected = selectedProjectId.value;
-      const currentRoot = resolveProjectDirectoryForProjectId(currentSelected);
-      if (!currentSelected || (currentRoot && normalizeDirectory(currentRoot) !== normalizeDirectory(pd || ''))) {
-        selectedProjectId.value = '';
-      }
-      if (!selectedProjectId.value && pd) {
-        void fetchCurrentProject(pd).then((project) => {
-          if (!project?.id) return;
-          upsertProject(project);
-          if (projectDirectory.value === pd) {
-            selectedProjectId.value = project.id;
+      if (pd) {
+        void opencodeApi.getCurrentProject(OPENCODE_BASE_URL, pd).then((project) => {
+          const data = project as ProjectInfo;
+          if (!data?.id) return;
+          upsertProject(data);
+          if (projectDirectory.value !== pd) return;
+          if (sessionGraphStore.setSandboxProjectID(pd, data.id)) {
             markSessionGraphChanged();
           }
         });
-      }
-      if (selectedProjectId.value && pd) {
-        sessionGraphStore.setProjectRoot(selectedProjectId.value, pd);
       }
       markSessionGraphChanged();
       void fetchWorktrees(pd || undefined);
@@ -5994,13 +5910,14 @@ watch(
     if (adChanged && !pdChanged) {
       selectedSessionId.value = '';
       if (ad) {
-        void fetchCurrentProject(ad).then((project) => {
-          if (!project?.id) return;
-          upsertProject(project);
+        void opencodeApi.getCurrentProject(OPENCODE_BASE_URL, ad).then((project) => {
+          const data = project as ProjectInfo;
+          if (!data?.id) return;
+          upsertProject(data);
           if (activeDirectory.value !== ad) return;
-          selectedProjectId.value = project.id;
-          sessionGraphStore.setProjectDirectory(project.id, ad);
-          markSessionGraphChanged();
+          if (sessionGraphStore.setSandboxProjectID(ad, data.id)) {
+            markSessionGraphChanged();
+          }
           void refreshSessionsForDirectory(ad);
         });
       }
@@ -6054,7 +5971,7 @@ watch(
   selectedProjectId,
   () => {
     if (isBootstrapping.value) return;
-    const rootDirectory = resolveProjectDirectoryForProjectId(selectedProjectId.value || undefined);
+    const rootDirectory = sessionGraphStore.getProjectRootForProject(selectedProjectId.value || '');
     if (rootDirectory && normalizeDirectory(projectDirectory.value) !== normalizeDirectory(rootDirectory)) {
       projectDirectory.value = rootDirectory;
     }
@@ -6085,7 +6002,12 @@ async function reloadSelectedSessionState() {
   outputPanelInitialFollowPending.value = true;
   pauseOutputPanelTracking();
   const selected = sessions.value.find((session) => session.id === selectedSessionId.value);
-  if (selected?.projectID) selectedProjectId.value = selected.projectID;
+  if (selected?.projectID) {
+    const directory = selected.directory || activeDirectory.value || projectDirectory.value;
+    if (directory && sessionGraphStore.setSandboxProjectID(directory, selected.projectID)) {
+      markSessionGraphChanged();
+    }
+  }
   disposeShellWindows({ preserve: true });
   queue.value = [];
   fw.closeAll();
@@ -8875,7 +8797,7 @@ function applySessionStatusEvent(payload: unknown, eventType: string) {
   const projectId =
     resolveProjectIdForSession(sessionId) ||
     selectedProjectId.value ||
-    resolveProjectIdForDirectorySelection(extractEventDirectory(payload) || undefined);
+    resolveProjectIdForDirectory(extractEventDirectory(payload) || undefined);
   if (!projectId) return;
 
   const isAllowedSession = allowedSessionIds.value.has(sessionId);
@@ -9895,7 +9817,7 @@ async function connect(options: { failFast?: boolean; timeoutMs?: number } = {})
       const resolvedProjectId =
         sessionInfo.projectID ||
         resolveProjectIdForSession(sessionInfo.id) ||
-        resolveProjectIdForDirectorySelection(eventDirectory || sessionInfo.directory || undefined);
+        resolveProjectIdForDirectory(eventDirectory || sessionInfo.directory || undefined);
       if (isDelete) {
         sessionGraphStore.removeSession(sessionInfo.id, resolvedProjectId || undefined);
         if (selectedSessionId.value === sessionInfo.id) selectedSessionId.value = '';
@@ -9907,7 +9829,7 @@ async function connect(options: { failFast?: boolean; timeoutMs?: number } = {})
         });
         const resolvedDirectory = eventDirectory || sessionInfo.directory || '';
         if (sessionInfo.projectID && resolvedDirectory) {
-          sessionGraphStore.addDirectoryCandidate(resolvedDirectory, sessionInfo.projectID);
+          sessionGraphStore.setSandboxProjectID(resolvedDirectory, sessionInfo.projectID);
         }
         if (sessionInfo.parentID) {
           subagentSessionExpiry.set(sessionInfo.id, Date.now() + SUBAGENT_ACTIVE_TTL_MS);

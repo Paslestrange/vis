@@ -15,7 +15,10 @@
             :key="q.messageKey ?? q.roundId ?? q.messageId ?? q.time"
           >
             <!-- ===== Round: nested box layout ===== -->
-            <div v-if="q.isRound" v-show="isEntryRendered(q)" class="info-block">
+             <div
+               v-if="q.isRound"
+               class="info-block"
+             >
               <!-- Fork button (top-right) -->
               <button
                 v-if="q.roundId && q.sessionId"

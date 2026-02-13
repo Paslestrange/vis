@@ -10,219 +10,117 @@
         @touchmove="$emit('touchmove')"
       >
         <div ref="contentEl" class="output-panel-content">
-          <template
-            v-for="q in filteredQueue"
-            :key="q.messageKey ?? q.roundId ?? q.messageId ?? q.time"
-          >
-            <!-- ===== Round: nested box layout ===== -->
-            <div v-if="q.isRound" v-show="isEntryRendered(q)" class="info-block">
-              <!-- Fork button (top-right) -->
+          <template v-for="root in visibleRoots" :key="root.id">
+            <div v-show="isRootRendered(root)" class="thread-block">
               <button
-                v-if="q.roundId && q.sessionId"
+                v-if="root.role === 'user' && root.sessionId"
                 type="button"
                 class="ib-action ib-top-right"
-                @click="confirmFork(q)"
+                @click="confirmFork(root)"
               >
                 FORK
               </button>
 
-              <!-- User message (always visible, agent theme left border) -->
-              <div class="ib-user-box" :style="getUserBoxStyle(q)">
-                <template v-for="(group, gi) in groupRoundMessages(q)" :key="gi">
-                  <template v-if="group.role === 'user'">
-                    <div class="ib-msg-block ib-msg-user">
-                      <div
-                        v-for="(msg, mi) in group.messages"
-                        :key="msg.messageId ?? mi"
-                        class="ib-msg-row"
-                      >
-                        <MessageViewer
-                          :code="msg.content"
-                          :lang="'markdown'"
-                          :theme="theme"
-                          @rendered="handleMessageRendered(getRoundUserRenderKey(q, msg, mi))"
-                        />
-                        <div
-                          v-if="msg.attachments && msg.attachments.length > 0"
-                          class="output-entry-attachments"
-                        >
-                          <img
-                            v-for="item in msg.attachments"
-                            :key="item.id"
-                            class="output-entry-attachment clickable"
-                            :src="item.url"
-                            :alt="item.filename"
-                            loading="lazy"
-                            @click="$emit('open-image', { url: item.url, filename: item.filename })"
-                          />
-                        </div>
-                      </div>
+              <div class="thread-user" :style="getUserBoxStyle(root)">
+                <div v-if="root.role === 'user'" class="ib-msg-block ib-msg-user">
+                  <div class="ib-msg-row">
+                    <MessageViewer
+                      :code="root.content"
+                      :lang="'markdown'"
+                      :theme="theme"
+                      @rendered="handleMessageRendered(getThreadUserRenderKey(root))"
+                    />
+                    <div
+                      v-if="root.attachments && root.attachments.length > 0"
+                      class="output-entry-attachments"
+                    >
+                      <img
+                        v-for="item in root.attachments"
+                        :key="item.id"
+                        class="output-entry-attachment clickable"
+                        :src="item.url"
+                        :alt="item.filename"
+                        loading="lazy"
+                        @click="$emit('open-image', { url: item.url, filename: item.filename })"
+                      />
                     </div>
-                  </template>
-                </template>
+                  </div>
+                </div>
               </div>
 
-              <!-- Target agent/model separator -->
-              <div
-                v-if="formatRoundTargetLabel(q)"
-                class="ib-round-target"
-                :style="getRoundTargetStyle(q)"
-              >
-                {{ formatRoundTargetLabel(q) }}
+              <div v-if="formatThreadTargetLabel(root)" class="ib-round-target" :style="getRoundTargetStyle(root)">
+                {{ formatThreadTargetLabel(root) }}
               </div>
 
-              <!-- Assistant response area (no collapse, fade transition per message) -->
-              <div v-if="hasAssistantMessages(q)" class="ib-response-area">
-                <template v-for="(group, gi) in groupRoundMessages(q)" :key="gi">
-                  <template v-if="group.role === 'assistant'">
-                    <Transition name="ib-fade" mode="out-in">
-                      <div
-                        class="ib-msg-block ib-msg-assistant"
-                        :key="getGroupTransitionKey(group)"
-                      >
-                        <div class="ib-msg-body">
-                          <MessageViewer
-                            :code="group.messages[group.messages.length - 1]?.content ?? ''"
-                            :lang="'markdown'"
-                            :theme="theme"
-                            @rendered="handleMessageRendered(getRoundAssistantRenderKey(q, group))"
-                          />
-                        </div>
-                        <button
-                           v-if="group.messages.length > 1 || (isThinking && isLastAssistantGroup(q, gi))"
-                           type="button"
-                           class="ib-action ib-action-history"
-                           :title="`${group.messages.length} messages – click to view history`"
-                           @click="showGroupHistory(q, group)"
-                         >
-                           ^ {{ group.messages.length }}
-                         </button>
-                      </div>
-                    </Transition>
-                  </template>
-                </template>
+              <div v-if="hasAssistantMessages(root)" class="thread-assistant">
+                <Transition name="ib-fade" mode="out-in">
+                  <div class="ib-msg-block ib-msg-assistant" :key="getThreadTransitionKey(root)">
+                    <div class="ib-msg-body">
+                      <MessageViewer
+                        :code="getFinalAnswerContent(root)"
+                        :lang="'markdown'"
+                        :theme="theme"
+                        @rendered="handleMessageRendered(getThreadAssistantRenderKey(root))"
+                      />
+                    </div>
+                    <div
+                      v-if="isThreadStreaming(root)"
+                      class="ib-streaming-indicator"
+                    >
+                      streaming...
+                    </div>
+                    <div
+                      v-if="getFinalAnswer(root)?.attachments && (getFinalAnswer(root)?.attachments?.length ?? 0) > 0"
+                      class="output-entry-attachments"
+                    >
+                      <img
+                        v-for="item in getFinalAnswer(root)?.attachments ?? []"
+                        :key="item.id"
+                        class="output-entry-attachment clickable"
+                        :src="item.url"
+                        :alt="item.filename"
+                        loading="lazy"
+                        @click="$emit('open-image', { url: item.url, filename: item.filename })"
+                      />
+                    </div>
+                    <button
+                      v-if="showHistoryButton(root)"
+                      type="button"
+                      class="ib-action ib-action-history"
+                      :title="`${getAssistantMessages(root).length} messages - click to view history`"
+                      @click="showThreadHistory(root)"
+                    >
+                      ^ {{ getAssistantMessages(root).length }}
+                    </button>
+                  </div>
+                </Transition>
               </div>
 
-              <!-- Error indicator (e.g. abort) -->
-              <div v-if="q.messageError" class="ib-error-bar">
+              <div v-if="getThreadError(root)" class="ib-error-bar">
                 <span class="ib-error-icon">⊘</span>
-                <span class="ib-error-text">{{ formatMessageError(q.messageError) }}</span>
+                <span class="ib-error-text">{{ formatMessageError(getThreadError(root)!) }}</span>
               </div>
 
-              <!-- Footer: meta left, actions right -->
               <div class="ib-footer">
-                <span class="ib-footer-meta">{{ formatRoundFooterMeta(q) }}</span>
+                <span class="ib-footer-meta">{{ formatThreadFooterMeta(root) }}</span>
                 <span class="ib-footer-actions">
                   <button
-                    v-if="q.messageKey && hasMessageDiffs(q.messageKey)"
+                    v-if="hasThreadDiffs(root)"
                     type="button"
                     class="ib-action ib-action-diff"
-                    @click="showRoundDiff(q)"
+                    @click="showThreadDiff(root)"
                   >
                     DIFF
                   </button>
                   <button
-                    v-if="q.roundId && q.sessionId && q.messageKey && hasMessageDiffs(q.messageKey)"
+                    v-if="canRevertThread(root)"
                     type="button"
                     class="ib-action ib-action-danger"
-                    @click="confirmRevert(q)"
+                    @click="confirmRevert(root)"
                   >
                     REVERT
                   </button>
                 </span>
-              </div>
-            </div>
-
-            <!-- ===== Non-round fallback ===== -->
-            <div
-              v-else
-              v-show="isEntryRendered(q)"
-              class="output-entry"
-              :class="{ 'is-user': q.role === 'user', 'is-question-answer': q.isQuestionAnswer }"
-              :style="getEntryStyle(q)"
-            >
-              <div
-                v-if="q.role === 'user' && formatMessageAgent(q)"
-                class="output-entry-agent"
-                :style="getAgentTextStyle(q)"
-              >
-                {{ formatMessageAgent(q) }}
-              </div>
-              <div
-                class="output-entry-inner"
-                :class="{ 'is-scrolling': q.scroll }"
-                :style="{
-                  '--scroll-distance': `${q.scrollDistance}px`,
-                  '--scroll-duration': `${q.scrollDuration}s`,
-                }"
-              >
-                <MessageViewer
-                  :code="q.content"
-                  :lang="'markdown'"
-                  :theme="theme"
-                  @rendered="handleMessageRendered(getEntryRenderKey(q))"
-                />
-                <div
-                  v-if="q.attachments && q.attachments.length > 0"
-                  class="output-entry-attachments"
-                >
-                  <img
-                    v-for="item in q.attachments"
-                    :key="item.id"
-                    class="output-entry-attachment clickable"
-                    :src="item.url"
-                    :alt="item.filename"
-                    loading="lazy"
-                    @click="$emit('open-image', { url: item.url, filename: item.filename })"
-                  />
-                </div>
-              </div>
-              <div v-if="hasFooter(q)" class="output-entry-footer">
-                <div class="output-entry-footer-left">
-                  <span v-if="formatMessageMeta(q)" class="output-entry-meta">{{
-                    formatMessageMeta(q)
-                  }}</span>
-                  <span
-                    v-if="formatMessageMeta(q) && formatMessageUsage(q)"
-                    class="output-entry-sep"
-                    >•</span
-                  >
-                  <span v-if="formatMessageUsage(q)" class="output-entry-usage">{{
-                    formatMessageUsage(q)
-                  }}</span>
-                </div>
-                <div class="output-entry-footer-right">
-                  <button
-                    v-if="q.role === 'assistant' && q.messageKey && hasMessageDiffs(q.messageKey)"
-                    type="button"
-                    class="output-entry-action output-entry-action-diff"
-                    @click="showMessageDiff(q)"
-                  >
-                    DIFF
-                  </button>
-                  <button
-                    v-if="q.role === 'user' && q.messageId && q.sessionId"
-                    type="button"
-                    class="output-entry-action"
-                    @click="confirmFork(q)"
-                  >
-                    FORK
-                  </button>
-                  <button
-                    v-if="
-                      q.role === 'user' &&
-                      q.messageId &&
-                      q.sessionId &&
-                      q.messageKey &&
-                      hasMessageDiffs(q.messageKey)
-                    "
-                    type="button"
-                    class="output-entry-action output-entry-action-danger"
-                    @click="confirmRevert(q)"
-                  >
-                    REVERT
-                  </button>
-                </div>
               </div>
             </div>
           </template>
@@ -253,86 +151,38 @@
 </template>
 
 <script setup lang="ts">
+import { Icon } from '@iconify/vue';
 import { Transition, computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import MessageViewer from './MessageViewer.vue';
-import { Icon } from '@iconify/vue';
-type FileReadEntry = {
-  time: number;
-  expiresAt: number;
-  x: number;
-  y: number;
-  header: string;
-  content: string;
-  scroll: boolean;
-  scrollDistance: number;
-  scrollDuration: number;
-  html: string;
-  attachments?: Array<{ id: string; url: string; mime: string; filename: string }>;
-  isWrite: boolean;
-  isMessage: boolean;
+import type { Message } from '../types/message';
+
+type DiffEntry = { file: string; diff: string; before?: string; after?: string };
+type LegacyQueueMessage = {
+  isMessage?: boolean;
   isSubagentMessage?: boolean;
+  messageId?: string;
+  messageKey?: string;
   sessionId?: string;
   role?: 'user' | 'assistant';
+  content?: string;
   messageAgent?: string;
   messageModel?: string;
   messageProviderId?: string;
   messageModelId?: string;
-  messageUsage?: {
-    tokens: {
-      input: number;
-      output: number;
-      reasoning: number;
-      cache?: {
-        read: number;
-        write: number;
-      };
-    };
-    cost?: number;
-    contextPercent?: number | null;
-  };
   messageVariant?: string;
   messageTime?: number;
-  toolStatus?: string;
-  toolName?: string;
-  messageId?: string;
-  messageKey?: string;
-  callId?: string;
-  isRound?: boolean;
-  roundId?: string;
-  roundMessages?: RoundMessage[];
-  roundDiffs?: Array<{ file: string; diff: string; before?: string; after?: string }>;
+  messageUsage?: Message['usage'];
+  attachments?: Message['attachments'];
   messageError?: { name: string; message: string } | null;
-  isQuestionAnswer?: boolean;
-};
-
-type RoundMessage = {
-  messageId: string;
-  role: 'user' | 'assistant';
-  content: string;
-  attachments?: Array<{ id: string; url: string; mime: string; filename: string }>;
-  agent?: string;
-  model?: string;
-  providerId?: string;
-  modelId?: string;
-  variant?: string;
-  time?: number;
-  usage?: {
-    tokens: {
-      input: number;
-      output: number;
-      reasoning: number;
-      cache?: {
-        read: number;
-        write: number;
-      };
-    };
-    cost?: number;
-    contextPercent?: number | null;
-  };
+  status?: Message['status'];
 };
 
 const props = defineProps<{
-  queue: FileReadEntry[];
+  roots?: Message[];
+  getChildren?: (parentId: string) => Message[];
+  getThread?: (rootId: string) => Message[];
+  getFinalAnswer?: (rootId: string) => Message | undefined;
+  queue?: unknown[];
   isFollowing: boolean;
   statusText: string;
   isStatusError: boolean;
@@ -341,10 +191,7 @@ const props = defineProps<{
   busyDescendantCount?: number;
   theme: string;
   resolveAgentColor?: (agent?: string) => string;
-  messageDiffs?: Map<
-    string,
-    Array<{ file: string; diff: string; before?: string; after?: string }>
-  >;
+  messageDiffs?: Map<string, DiffEntry[]>;
 }>();
 
 const emit = defineEmits<{
@@ -354,13 +201,7 @@ const emit = defineEmits<{
   (event: 'resume-follow'): void;
   (event: 'fork-message', payload: { sessionId: string; messageId: string }): void;
   (event: 'revert-message', payload: { sessionId: string; messageId: string }): void;
-  (
-    event: 'show-message-diff',
-    payload: {
-      messageKey: string;
-      diffs: Array<{ file: string; diff: string; before?: string; after?: string }>;
-    },
-  ): void;
+  (event: 'show-message-diff', payload: { messageKey: string; diffs: DiffEntry[] }): void;
   (event: 'show-message-history', payload: { roundId: string; contents: string[] }): void;
   (event: 'open-image', payload: { url: string; filename: string }): void;
   (event: 'message-rendered'): void;
@@ -377,47 +218,208 @@ function followDebug(event: string, detail?: Record<string, unknown>) {
   console.debug(`[output-panel] ${event}`, { t });
 }
 
-const filteredQueue = computed(() =>
-  props.queue.filter((entry) => entry.isMessage && !entry.isSubagentMessage),
-);
+const legacyThreads = computed(() => {
+  const raw = Array.isArray(props.queue) ? props.queue : [];
+  const normalized: Message[] = [];
+  for (let index = 0; index < raw.length; index++) {
+    const item = raw[index] as LegacyQueueMessage;
+    if (!item?.isMessage || item.isSubagentMessage) continue;
+    const role = item.role;
+    if (role !== 'user' && role !== 'assistant') continue;
+    const id = item.messageId ?? item.messageKey ?? `legacy:${index}`;
+    const sessionId = item.sessionId ?? 'legacy';
+    normalized.push({
+      id,
+      sessionId,
+      role,
+      content: item.content ?? '',
+      status: item.status ?? 'complete',
+      agent: item.messageAgent,
+      model: item.messageModel,
+      providerId: item.messageProviderId,
+      modelId: item.messageModelId,
+      variant: item.messageVariant,
+      time: item.messageTime,
+      usage: item.messageUsage,
+      attachments: item.attachments,
+      error: item.messageError ?? null,
+    });
+  }
+  const roots: Message[] = [];
+  const byParent = new Map<string, Message[]>();
+  const byRoot = new Map<string, Message[]>();
+  let activeRootId = '';
+  normalized.forEach((message) => {
+    if (message.role === 'user') {
+      activeRootId = message.id;
+      roots.push(message);
+      byRoot.set(activeRootId, [message]);
+      return;
+    }
+    if (!activeRootId) return;
+    message.parentId = activeRootId;
+    const children = byParent.get(activeRootId) ?? [];
+    children.push(message);
+    byParent.set(activeRootId, children);
+    const thread = byRoot.get(activeRootId) ?? [];
+    thread.push(message);
+    byRoot.set(activeRootId, thread);
+  });
+  return { roots, byParent, byRoot };
+});
 
-function formatRoundMeta(entry: FileReadEntry): string {
-  // Find last assistant sub-message for model info, or use root
-  const messages = entry.roundMessages ?? [];
-  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
-  const model = lastAssistant?.model ?? entry.messageModel;
-  const variant = lastAssistant?.variant ?? entry.messageVariant;
-  const modelPart = variant ? `${model} (${variant})` : model || '';
-  const timestamp = formatMessageTime(lastAssistant?.time ?? entry.messageTime);
-  return [timestamp, modelPart].filter(Boolean).join(' - ');
+const visibleRoots = computed(() => {
+  const roots = props.roots ?? [];
+  if (roots.length > 0) return roots.filter((entry) => entry.role === 'user');
+  return legacyThreads.value.roots;
+});
+
+function getThread(rootId: string): Message[] {
+  if (props.getThread) return props.getThread(rootId);
+  const roots = props.roots ?? [];
+  if (roots.length > 0) {
+    const root = roots.find((item) => item.id === rootId);
+    return root ? [root] : [];
+  }
+  return legacyThreads.value.byRoot.get(rootId) ?? [];
 }
 
-function formatRoundUsage(entry: FileReadEntry): string {
-  const messages = entry.roundMessages ?? [];
-  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
-  const usage = lastAssistant?.usage ?? entry.messageUsage;
-  if (!usage) return '';
-  const tokens = usage.tokens;
-  if (!tokens) return '';
-  const input = formatCompactCount(tokens.input);
-  const output = formatCompactCount(tokens.output);
-  const reasoning = formatCompactCount(tokens.reasoning);
-  if (reasoning) return `in ${input} + out ${output} + re ${reasoning}`;
-  return `in ${input} + out ${output}`;
+function getChildren(parentId: string): Message[] {
+  if (props.getChildren) return props.getChildren(parentId);
+  const roots = props.roots ?? [];
+  if (roots.length > 0) return [];
+  return legacyThreads.value.byParent.get(parentId) ?? [];
 }
 
-function formatRoundTimestamp(entry: FileReadEntry): string {
-  const messages = entry.roundMessages ?? [];
-  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
-  return formatMessageTime(lastAssistant?.time ?? entry.messageTime);
+function getFinalAnswer(root: Message): Message | undefined {
+  if (props.getFinalAnswer) return props.getFinalAnswer(root.id);
+  const assistants = getThread(root.id).filter((msg) => msg.role === 'assistant');
+  return assistants[assistants.length - 1];
 }
 
-function formatRoundElapsed(entry: FileReadEntry): string {
-  const messages = entry.roundMessages ?? [];
-  const userMsg = messages.find((m) => m.role === 'user');
-  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
-  const start = userMsg?.time ?? entry.messageTime;
-  const end = lastAssistant?.time;
+function getFinalAnswerContent(root: Message): string {
+  return getFinalAnswer(root)?.content ?? '';
+}
+
+function getAssistantMessages(root: Message): Message[] {
+  return getThread(root.id).filter((msg) => msg.role === 'assistant');
+}
+
+function isThreadStreaming(root: Message): boolean {
+  const directChildren = getChildren(root.id);
+  if (directChildren.some((child) => child.role === 'assistant' && child.status === 'streaming')) {
+    return true;
+  }
+  return getAssistantMessages(root).some((message) => message.status === 'streaming');
+}
+
+function hasAssistantMessages(root: Message): boolean {
+  return getAssistantMessages(root).length > 0;
+}
+
+function showHistoryButton(root: Message): boolean {
+  const count = getAssistantMessages(root).length;
+  return count > 1 || (props.isThinking && isThreadStreaming(root));
+}
+
+function showThreadHistory(root: Message) {
+  const contents = getAssistantMessages(root)
+    .map((msg) => msg.content)
+    .filter((content) => content.length > 0);
+  if (contents.length === 0) return;
+  emit('show-message-history', { roundId: root.id, contents });
+}
+
+function getThreadError(root: Message): { name: string; message: string } | null {
+  const final = getFinalAnswer(root);
+  if (final?.error) return final.error;
+  const thread = getThread(root.id);
+  for (let index = thread.length - 1; index >= 0; index--) {
+    const error = thread[index].error;
+    if (error) return error;
+  }
+  return null;
+}
+
+function formatMessageError(error: { name: string; message: string }): string {
+  if (error.name === 'MessageAbortedError') return error.message || 'Aborted';
+  const parts: string[] = [];
+  if (error.name) parts.push(error.name);
+  if (error.message) parts.push(error.message);
+  return parts.join(': ') || 'Error';
+}
+
+function getThreadDiffs(root: Message): DiffEntry[] {
+  const final = getFinalAnswer(root);
+  return final?.diffs ?? root.diffs ?? [];
+}
+
+function hasThreadDiffs(root: Message): boolean {
+  return getThreadDiffs(root).length > 0;
+}
+
+function showThreadDiff(root: Message) {
+  const diffs = getThreadDiffs(root);
+  if (diffs.length === 0) return;
+  const messageKey = getFinalAnswer(root)?.id ?? root.id;
+  emit('show-message-diff', { messageKey, diffs });
+}
+
+function canRevertThread(root: Message): boolean {
+  return root.role === 'user' && Boolean(root.sessionId) && hasThreadDiffs(root);
+}
+
+function confirmFork(root: Message) {
+  if (root.role !== 'user' || !root.sessionId || !root.id) return;
+  if (!window.confirm('Fork from this message?')) return;
+  emit('fork-message', { sessionId: root.sessionId, messageId: root.id });
+}
+
+function confirmRevert(root: Message) {
+  if (root.role !== 'user' || !root.sessionId || !root.id) return;
+  if (!window.confirm('Revert to this message?')) return;
+  emit('revert-message', { sessionId: root.sessionId, messageId: root.id });
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function formatThreadTargetLabel(root: Message): string {
+  const final = getFinalAnswer(root);
+  const parts: string[] = [];
+  if (final?.agent) parts.push(capitalize(final.agent));
+  const modelPath =
+    final?.providerId && final?.modelId
+      ? `${final.providerId}/${final.modelId}`
+      : final?.model || '';
+  if (modelPath) parts.push(modelPath);
+  if (final?.variant) parts.push(`(${final.variant})`);
+  return parts.join(' ');
+}
+
+function getRoundTargetStyle(root: Message) {
+  const final = getFinalAnswer(root);
+  const color = props.resolveAgentColor ? props.resolveAgentColor(final?.agent) : '#4ade80';
+  return { color };
+}
+
+function getUserBoxStyle(root: Message) {
+  const color = props.resolveAgentColor ? props.resolveAgentColor(root.agent) : '#334155';
+  if (color.startsWith('#') && color.length === 7) {
+    return { borderLeftColor: `${color}99` };
+  }
+  return { borderLeftColor: color };
+}
+
+function formatThreadTimestamp(root: Message): string {
+  return formatMessageTime(getFinalAnswer(root)?.time ?? root.time);
+}
+
+function formatThreadElapsed(root: Message): string {
+  const final = getFinalAnswer(root);
+  const start = root.time;
+  const end = final?.time;
   if (typeof start !== 'number' || typeof end !== 'number') return '';
   const sec = Math.round((end - start) / 1000);
   if (sec < 1) return '';
@@ -427,154 +429,55 @@ function formatRoundElapsed(entry: FileReadEntry): string {
   return rem > 0 ? `thought ${min}m${rem}s` : `thought ${min}m`;
 }
 
-function formatRoundFooterMeta(entry: FileReadEntry): string {
+function formatThreadFooterMeta(root: Message): string {
   const parts: string[] = [];
-  const ts = formatRoundTimestamp(entry);
-  if (ts) parts.push(ts);
-  const elapsed = formatRoundElapsed(entry);
+  const timestamp = formatThreadTimestamp(root);
+  if (timestamp) parts.push(timestamp);
+  const usage = formatMessageUsage(getFinalAnswer(root));
+  if (usage) parts.push(usage);
+  const elapsed = formatThreadElapsed(root);
   if (elapsed) parts.push(elapsed);
   return parts.join(', ');
 }
 
-function showGroupHistory(entry: FileReadEntry, group: MessageGroup) {
-  const roundId = entry.roundId ?? entry.messageKey ?? String(entry.time);
-  const contents = group.messages.map((msg) => msg.content).filter(Boolean);
-  if (contents.length === 0) return;
-  emit('show-message-history', { roundId, contents });
+function formatMessageUsage(message?: Message): string {
+  if (!message?.usage || message.role !== 'assistant') return '';
+  const tokens = message.usage.tokens;
+  if (!tokens) return '';
+  const input = formatCompactCount(tokens.input);
+  const output = formatCompactCount(tokens.output);
+  const reasoning = formatCompactCount(tokens.reasoning);
+  if (input === '0' && output === '0' && reasoning === '0') return '';
+  const cost = typeof message.usage.cost === 'number' ? formatCost(message.usage.cost) : '$--';
+  return `In ${input} / Out ${output} / Reason ${reasoning} / ${cost}`;
 }
 
-function formatMessageError(error: { name: string; message: string }): string {
-  if (error.name === 'MessageAbortedError') {
-    return error.message || 'Aborted';
-  }
-  const parts: string[] = [];
-  if (error.name) parts.push(error.name);
-  if (error.message) parts.push(error.message);
-  return parts.join(': ') || 'Error';
+function formatCompactCount(value: number) {
+  if (!Number.isFinite(value)) return '0';
+  if (value <= 0) return '0';
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`;
+  if (value >= 10_000) return `${Math.round(value / 1_000)}k`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return `${Math.round(value)}`;
 }
 
-function showRoundDiff(entry: FileReadEntry) {
-  if (!entry.messageKey) return;
-  const diffs = props.messageDiffs?.get(entry.messageKey);
-  if (!diffs || diffs.length === 0) return;
-  emit('show-message-diff', { messageKey: entry.messageKey, diffs });
+function formatCost(value: number) {
+  if (!Number.isFinite(value)) return '$--';
+  if (value === 0) return '$0.000';
+  if (value < 0.01) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(3)}`;
 }
 
-// --- Nested box helpers ---
-
-type MessageGroup = {
-  role: 'user' | 'assistant';
-  agent?: string;
-  model?: string;
-  providerId?: string;
-  modelId?: string;
-  variant?: string;
-  messages: RoundMessage[];
-};
-
-function groupRoundMessages(entry: FileReadEntry): MessageGroup[] {
-  const messages = entry.roundMessages ?? [];
-  if (messages.length === 0) return [];
-  const groups: MessageGroup[] = [];
-  let current: MessageGroup | null = null;
-  for (const msg of messages) {
-    const role = msg.role === 'user' ? 'user' : 'assistant';
-    const agent = msg.agent;
-    // Merge consecutive messages from same role+agent
-    if (current && current.role === role && current.agent === agent) {
-      current.messages.push(msg);
-      // Update model/variant to latest
-      if (msg.model) current.model = msg.model;
-      if (msg.providerId) current.providerId = msg.providerId;
-      if (msg.modelId) current.modelId = msg.modelId;
-      if (msg.variant) current.variant = msg.variant;
-    } else {
-      current = {
-        role,
-        agent,
-        model: msg.model,
-        providerId: msg.providerId,
-        modelId: msg.modelId,
-        variant: msg.variant,
-        messages: [msg],
-      };
-      groups.push(current);
-    }
-  }
-  return groups;
-}
-
-function hasAssistantMessages(entry: FileReadEntry): boolean {
-   return (entry.roundMessages ?? []).some((m) => m.role === 'assistant');
- }
-
- function isLastAssistantGroup(entry: FileReadEntry, groupIndex: number): boolean {
-   const groups = groupRoundMessages(entry);
-   // Find the last assistant group
-   for (let i = groups.length - 1; i >= 0; i--) {
-     if (groups[i].role === 'assistant') {
-       return i === groupIndex;
-     }
-   }
-   return false;
- }
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function formatSenderLabel(group: MessageGroup): string {
-  if (group.role === 'user') return 'You';
-  const parts: string[] = [];
-  if (group.agent) parts.push(capitalize(group.agent));
-  const modelPath =
-    group.providerId && group.modelId ? `${group.providerId}/${group.modelId}` : group.model || '';
-  if (modelPath) parts.push(modelPath);
-  if (group.variant) parts.push(`(${group.variant})`);
-  return parts.join(' ') || 'Assistant';
-}
-
-function formatRoundTargetLabel(entry: FileReadEntry): string {
-  const parts: string[] = [];
-  if (entry.messageAgent) parts.push(capitalize(entry.messageAgent));
-  const modelPath =
-    entry.messageProviderId && entry.messageModelId
-      ? `${entry.messageProviderId}/${entry.messageModelId}`
-      : entry.messageModel || '';
-  if (modelPath) parts.push(modelPath);
-  if (entry.messageVariant) parts.push(`(${entry.messageVariant})`);
-  return parts.join(' ');
-}
-
-function getSenderStyle(group: MessageGroup) {
-  if (group.role === 'user') return { color: '#94a3b8' }; // gray
-  const color = props.resolveAgentColor ? props.resolveAgentColor(group.agent) : '#4ade80';
-  return { color };
-}
-
-function getRoundTargetStyle(entry: FileReadEntry) {
-  const color = props.resolveAgentColor ? props.resolveAgentColor(entry.messageAgent) : '#4ade80';
-  return { color };
-}
-
-function getUserBoxStyle(entry: FileReadEntry) {
-  const agent = entry.messageAgent;
-  const color = props.resolveAgentColor ? props.resolveAgentColor(agent) : '#334155';
-  if (color.startsWith('#') && color.length === 7) {
-    return { borderLeftColor: `${color}99` };
-  }
-  return { borderLeftColor: color };
-}
-
-function getGroupTransitionKey(group: MessageGroup): string {
-  // Key by last message ID so Transition triggers when the displayed message changes
-  const last = group.messages[group.messages.length - 1];
-  return last?.messageId ?? String(group.messages.length);
-}
-
-function hasRoundFooterActions(entry: FileReadEntry): boolean {
-  if (entry.messageKey && hasMessageDiffs(entry.messageKey)) return true; // DIFF & REVERT
-  return false;
+function formatMessageTime(value?: number) {
+  if (typeof value !== 'number') return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
 
 const panelEl = ref<HTMLDivElement | null>(null);
@@ -596,57 +499,30 @@ const thinkingDisplayText = computed(() => {
   return `${heads} Thinking${thinkingSuffix.value}`;
 });
 
-function getEntryRenderKey(entry: FileReadEntry): string {
-  return `entry:${entry.messageKey ?? entry.messageId ?? entry.time}`;
+function getThreadUserRenderKey(root: Message): string {
+  return `thread-user:${root.id}`;
 }
 
-function getRoundUserRenderKey(entry: FileReadEntry, msg: RoundMessage, index: number): string {
-  const roundKey = entry.roundId ?? entry.messageId ?? entry.messageKey ?? entry.time;
-  return `round-user:${roundKey}:${msg.messageId ?? index}`;
+function getThreadAssistantRenderKey(root: Message): string {
+  const final = getFinalAnswer(root);
+  return `thread-assistant:${root.id}:${final?.id ?? 'none'}`;
 }
 
-function getRoundAssistantRenderKey(entry: FileReadEntry, group: MessageGroup): string {
-  const roundKey = entry.roundId ?? entry.messageId ?? entry.messageKey ?? entry.time;
-  return `round-assistant:${roundKey}:${getGroupTransitionKey(group)}`;
+function getThreadTransitionKey(root: Message): string {
+  return getFinalAnswer(root)?.id ?? root.id;
 }
 
-function isEntryRendered(entry: FileReadEntry): boolean {
-  if (entry.isRound) {
-    const groups = groupRoundMessages(entry);
-    return groups.every((group) => {
-      if (group.role === 'user') {
-        return group.messages.every((msg, index) =>
-          renderedKeys.value.has(getRoundUserRenderKey(entry, msg, index)),
-        );
-      }
-      if (group.role === 'assistant') {
-        return renderedKeys.value.has(getRoundAssistantRenderKey(entry, group));
-      }
-      return true;
-    });
-  }
-  return renderedKeys.value.has(getEntryRenderKey(entry));
+function isRootRendered(root: Message): boolean {
+  const keys = [getThreadUserRenderKey(root)];
+  if (hasAssistantMessages(root)) keys.push(getThreadAssistantRenderKey(root));
+  return keys.every((key) => renderedKeys.value.has(key));
 }
 
 function collectInitialRenderKeys(): Set<string> {
   const keys = new Set<string>();
-  filteredQueue.value.forEach((entry) => {
-    if (entry.isRound) {
-      const groups = groupRoundMessages(entry);
-      groups.forEach((group) => {
-        if (group.role === 'user') {
-          group.messages.forEach((msg, index) => {
-            keys.add(getRoundUserRenderKey(entry, msg, index));
-          });
-          return;
-        }
-        if (group.role === 'assistant') {
-          keys.add(getRoundAssistantRenderKey(entry, group));
-        }
-      });
-      return;
-    }
-    keys.add(getEntryRenderKey(entry));
+  visibleRoots.value.forEach((root) => {
+    keys.add(getThreadUserRenderKey(root));
+    if (hasAssistantMessages(root)) keys.add(getThreadAssistantRenderKey(root));
   });
   return keys;
 }
@@ -689,121 +565,10 @@ function setupContentResizeObserver() {
   const target = contentEl.value;
   if (!target) return;
   contentResizeObserver = new ResizeObserver(() => {
-    followDebug('content-resized', { queueLength: filteredQueue.value.length });
+    followDebug('content-resized', { rootCount: visibleRoots.value.length });
     emit('content-resized');
   });
   contentResizeObserver.observe(target);
-}
-
-function hasMessageDiffs(messageKey: string) {
-  const diffs = props.messageDiffs?.get(messageKey);
-  return Boolean(diffs && diffs.length > 0);
-}
-
-function showMessageDiff(entry: FileReadEntry) {
-  if (!entry.messageKey) return;
-  const diffs = props.messageDiffs?.get(entry.messageKey);
-  if (!diffs || diffs.length === 0) return;
-  emit('show-message-diff', { messageKey: entry.messageKey, diffs });
-}
-
-function confirmFork(entry: FileReadEntry) {
-  if (!entry.sessionId || !entry.messageId || entry.role !== 'user') return;
-  if (!window.confirm('Fork from this message?')) return;
-  emit('fork-message', { sessionId: entry.sessionId, messageId: entry.messageId });
-}
-
-function confirmRevert(entry: FileReadEntry) {
-  if (!entry.sessionId || !entry.messageId || entry.role !== 'user') return;
-  if (!window.confirm('Revert to this message?')) return;
-  emit('revert-message', { sessionId: entry.sessionId, messageId: entry.messageId });
-}
-
-function hasFooter(entry: FileReadEntry) {
-  if (formatMessageMeta(entry)) return true;
-  if (formatMessageUsage(entry)) return true;
-  if (entry.role === 'user' && entry.messageId && entry.sessionId) return true;
-  if (entry.role === 'assistant' && entry.messageKey && hasMessageDiffs(entry.messageKey))
-    return true;
-  return false;
-}
-
-function formatMessageMeta(entry: FileReadEntry) {
-  const model = entry.messageModel?.trim();
-  const variant = entry.messageVariant?.trim();
-  const modelPart = variant ? `${model} (${variant})` : model || '';
-  const timestamp = formatMessageTime(entry.messageTime);
-  return [timestamp, modelPart].filter(Boolean).join(' - ');
-}
-
-function formatMessageUsage(entry: FileReadEntry) {
-  if (!entry.messageUsage) return '';
-  if (entry.role !== 'assistant') return '';
-  const tokens = entry.messageUsage.tokens;
-  if (!tokens) return '';
-  const input = formatCompactCount(tokens.input);
-  const output = formatCompactCount(tokens.output);
-  const reasoning = formatCompactCount(tokens.reasoning);
-  if (input === '0' && output === '0' && reasoning === '0') return '';
-  const cost =
-    typeof entry.messageUsage.cost === 'number' ? formatCost(entry.messageUsage.cost) : '$--';
-  return `In ${input} / Out ${output} / Reason ${reasoning} / ${cost}`;
-}
-
-function formatCompactCount(value: number) {
-  if (!Number.isFinite(value)) return '0';
-  if (value <= 0) return '0';
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`;
-  if (value >= 10_000) return `${Math.round(value / 1_000)}k`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
-  return `${Math.round(value)}`;
-}
-
-function formatCost(value: number) {
-  if (!Number.isFinite(value)) return '$--';
-  if (value === 0) return '$0.000';
-  if (value < 0.01) return `$${value.toFixed(4)}`;
-  return `$${value.toFixed(3)}`;
-}
-
-function formatMessageAgent(entry: FileReadEntry) {
-  const agent = entry.messageAgent?.trim();
-  if (!agent) return '';
-  return `[${agent.toUpperCase()}]`;
-}
-
-function getEntryStyle(entry: FileReadEntry) {
-  if (entry.role !== 'user') return {};
-  const agent = entry.messageAgent;
-  // If no resolver, fallback to neutral
-  const color = props.resolveAgentColor ? props.resolveAgentColor(agent) : '#334155';
-
-  // If hex 6-digit, add alpha
-  if (color.startsWith('#') && color.length === 7) {
-    return {
-      backgroundColor: `${color}2E`, // ~0.18
-      borderColor: `${color}99`, // ~0.60
-    };
-  }
-  return { borderColor: color };
-}
-
-function getAgentTextStyle(entry: FileReadEntry) {
-  const agent = entry.messageAgent;
-  const color = props.resolveAgentColor ? props.resolveAgentColor(agent) : '#bfdbfe';
-  return { color };
-}
-
-function formatMessageTime(value?: number) {
-  if (typeof value !== 'number') return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  const year = String(date.getFullYear());
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
 
 watch(
@@ -834,7 +599,7 @@ watch(contentEl, () => {
 });
 
 watch(
-  () => filteredQueue.value.length,
+  () => visibleRoots.value.length,
   (length, previous) => {
     if (length === 0) {
       pendingInitialRenderKeys.value = new Set<string>();
@@ -913,132 +678,6 @@ defineExpose({ panelEl });
   min-height: 100%;
 }
 
-.output-entry {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  background: rgba(2, 6, 23, 0.6);
-  border: 1px solid #1e293b;
-  border-radius: 10px;
-  padding: 10px 10px;
-  max-width: 100%;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.output-entry.is-user {
-  background: rgba(15, 23, 42, 0.72);
-  border-color: rgba(148, 163, 184, 0.55);
-  padding-top: 18px;
-  padding-bottom: 10px;
-}
-
-.output-entry.is-question-answer {
-  border-color: rgba(34, 197, 94, 0.7);
-  background: rgba(6, 32, 18, 0.5);
-}
-
-.output-entry-inner {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  --message-line-height: 1.2;
-  line-height: var(--message-line-height);
-}
-
-.output-entry-agent {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  font-size: 10px;
-  color: rgba(191, 219, 254, 0.9);
-}
-
-.output-entry-footer {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 6px;
-  min-height: 18px;
-}
-
-.output-entry-footer-left {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.output-entry-footer-right {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.output-entry-meta {
-  font-size: 10px;
-  color: rgba(191, 219, 254, 0.9);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.output-entry-sep {
-  font-size: 10px;
-  color: rgba(148, 163, 184, 0.5);
-  flex-shrink: 0;
-}
-
-.output-entry-usage {
-  font-size: 10px;
-  color: rgba(148, 163, 184, 0.9);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.output-entry-action {
-  border: 1px solid rgba(148, 163, 184, 0.65);
-  border-radius: 6px;
-  background: rgba(15, 23, 42, 0.75);
-  color: #bfdbfe;
-  font-size: 10px;
-  line-height: 1;
-  padding: 3px 7px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.output-entry-action:hover {
-  background: rgba(30, 41, 59, 0.92);
-}
-
-.output-entry-action-danger {
-  border-color: rgba(248, 113, 113, 0.7);
-  background: rgba(127, 29, 29, 0.35);
-  color: #fecaca;
-}
-
-.output-entry-action-danger:hover {
-  background: rgba(153, 27, 27, 0.5);
-}
-
-.output-entry-action-diff {
-  border-color: rgba(96, 165, 250, 0.7);
-  background: rgba(30, 58, 138, 0.35);
-  color: #bfdbfe;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-}
-
-.output-entry-action-diff:hover {
-  background: rgba(30, 64, 175, 0.55);
-}
-
 .output-entry-attachments {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
@@ -1057,14 +696,6 @@ defineExpose({ panelEl });
 
 .output-entry-attachment.clickable {
   cursor: pointer;
-}
-
-.output-entry-inner.is-scrolling {
-  animation: scroll-down var(--scroll-duration) linear forwards;
-}
-
-.output-panel-shell .output-entry-inner.is-scrolling {
-  animation: none;
 }
 
 .follow-button {
@@ -1132,9 +763,7 @@ defineExpose({ panelEl });
   background: rgba(30, 41, 59, 0.98);
 }
 
-/* === Nested Box Design === */
-
-.info-block {
+.thread-block {
   background: rgba(2, 6, 23, 0.6);
   border: 1px solid #1e293b;
   border-radius: 10px;
@@ -1144,8 +773,8 @@ defineExpose({ panelEl });
   margin: 0;
 }
 
-.ib-user-box {
-  border-left: 3px solid; /* color via inline style from getUserBoxStyle */
+.thread-user {
+  border-left: 3px solid;
   padding-left: 8px;
   width: 100%;
   box-sizing: border-box;
@@ -1179,18 +808,11 @@ defineExpose({ panelEl });
   margin-top: 4px;
 }
 
-.ib-response-area {
+.thread-assistant {
   display: flex;
   flex-direction: column;
   gap: 4px;
   margin-top: 4px;
-}
-
-.ib-sender {
-  font-size: 10px;
-  font-weight: 600;
-  margin-bottom: 2px;
-  /* Color set via inline style */
 }
 
 .ib-msg-body {
@@ -1203,6 +825,13 @@ defineExpose({ panelEl });
   padding-left: 6px;
 }
 
+.ib-streaming-indicator {
+  margin-top: 4px;
+  padding-left: 6px;
+  font-size: 10px;
+  color: rgba(148, 163, 184, 0.85);
+}
+
 .ib-footer-meta {
   font-size: 10px;
   color: rgba(148, 163, 184, 0.7);
@@ -1213,13 +842,11 @@ defineExpose({ panelEl });
   white-space: nowrap;
 }
 
-/* Fork button: top-right of info-block */
 .ib-top-right {
   float: right;
   margin: -2px -2px 4px 8px;
 }
 
-/* Footer: meta left, actions right */
 .ib-footer {
   display: flex;
   justify-content: space-between;
@@ -1313,7 +940,6 @@ defineExpose({ panelEl });
   white-space: nowrap;
 }
 
-/* Fade transition for message changes */
 .ib-fade-enter-active,
 .ib-fade-leave-active {
   transition: opacity 0.25s ease;

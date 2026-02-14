@@ -9,6 +9,9 @@
         @touchmove="$emit('touchmove')"
       >
         <div ref="contentEl" class="output-panel-content">
+          <div v-if="initialRenderTrackingActive" class="absolute w-full h-full m-auto flex justify-center items-center">
+            <div class="app-loading-spinner" aria-hidden="true"></div>
+          </div>
           <template v-for="root in visibleRoots" :key="root.id">
             <div class="thread-block" v-show="!initialRenderTrackingActive">
                 <button
@@ -1107,4 +1110,21 @@ defineExpose({ panelEl });
   font-size: 13px;
   line-height: 1.4;
 }
+
+.app-loading-spinner {
+  width: 26px;
+  height: 26px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  border: 3px solid rgba(148, 163, 184, 0.4);
+  border-top-color: #e2e8f0;
+  animation: app-loading-spin 0.85s linear infinite;
+}
+
+@keyframes app-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 </style>

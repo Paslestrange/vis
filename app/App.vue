@@ -128,23 +128,62 @@
     </template>
     <div v-else class="app-loading-view" role="status" aria-live="polite">
       <div class="app-loading-card">
-        <div class="app-loading-spinner" aria-hidden="true"></div>
-        <p class="app-loading-title">Loading OpenCode session data...</p>
-        <p class="app-loading-message">{{ uiInitState === 'error' ? initErrorMessage : initLoadingMessage }}</p>
-        <button
-          v-if="uiInitState === 'error'"
-          type="button"
-          class="app-loading-retry"
-          @click="startInitialization"
-        >
-          Retry
-        </button>
+        <div v-if="uiInitState === 'login'" class="app-login-form">
+          <p class="app-loading-title">Connect to OpenCode Server</p>
+          <div class="app-login-fields">
+            <input
+              v-model="loginUrl"
+              type="text"
+              class="app-login-input"
+              placeholder="http://localhost:4096"
+              name="url"
+              @keydown.enter="handleLogin"
+            />
+            <input
+              v-model="loginUsername"
+              type="text"
+              class="app-login-input"
+              placeholder="opencode"
+              name="username"
+              @keydown.enter="handleLogin"
+            />
+            <input
+              v-model="loginPassword"
+              type="password"
+              class="app-login-input"
+              placeholder="Password"
+              @keydown.enter="handleLogin"
+            />
+          </div>
+          <p v-if="initErrorMessage" class="app-loading-message app-error-message">{{ initErrorMessage }}</p>
+          <button
+            type="button"
+            class="app-loading-retry"
+            @click="handleLogin"
+          >
+            Connect
+          </button>
+        </div>
+        <div v-else>
+          <div class="app-loading-spinner" aria-hidden="true"></div>
+          <p class="app-loading-title">Loading OpenCode session data...</p>
+          <p class="app-loading-message">{{ uiInitState === 'error' ? initErrorMessage : initLoadingMessage }}</p>
+          <button
+            v-if="uiInitState === 'error'"
+            type="button"
+            class="app-loading-retry"
+            @click="startInitialization"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     </div>
     <ProjectPicker
       :open="isProjectPickerOpen"
-      :base-url="OPENCODE_BASE_URL"
+      :base-url="credentials.baseUrl.value"
       :initial-directory="projectDirectory"
+      :authorization="credentials.authHeader.value"
       @close="isProjectPickerOpen = false"
       @select="handleProjectDirectorySelect"
     />
@@ -199,8 +238,9 @@ import { extractFileRead as extractToolFileRead, extractPatch as extractToolPatc
 import * as opencodeApi from './utils/opencode';
 import { opencodeTheme, resolveTheme, resolveAgentColor } from './utils/theme';
 import { createSessionGraphStore } from './utils/sessionGraph';
+import { useCredentials } from './composables/useCredentials';
 
-const OPENCODE_BASE_URL = 'http://localhost:4096';
+const credentials = useCredentials();
 const FOLLOW_THRESHOLD_PX = 24;
 const TOOL_PENDING_TTL_MS = 60_000;
 const TOOL_COMPLETE_TTL_MS = 2_000;
@@ -787,7 +827,7 @@ const sendStatus = ref('Ready');
 const isSending = ref(false);
 const isAborting = ref(false);
 const isBootstrapping = ref(false);
-const uiInitState = ref<'loading' | 'ready' | 'error'>('loading');
+const uiInitState = ref<'loading' | 'ready' | 'error' | 'login'>('loading');
 const initLoadingMessage = ref('Connecting to server...');
 const initErrorMessage = ref('Failed to load initial data. Reload to retry.');
 const connectionState = ref<'connecting' | 'bootstrapping' | 'ready' | 'reconnecting' | 'error'>(
@@ -797,6 +837,9 @@ const reconnectingMessage = ref('');
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectInFlight = false;
 let initializationInFlight = false;
+const loginUrl = ref('http://localhost:4096');
+const loginUsername = ref('opencode');
+const loginPassword = ref('');
 const retryStatus = ref<{
   message: string;
   next: number;
@@ -935,7 +978,7 @@ watch(
       if (loadingWorktreeNameDirectories.has(dir)) continue;
       loadingWorktreeNameDirectories.add(dir);
       try {
-        const result = (await opencodeApi.readFileContent(OPENCODE_BASE_URL, {
+        const result = (await opencodeApi.readFileContent(credentials.baseUrl.value, {
           directory: dir,
           path: 'package.json',
         })) as FileContentResponse | string;
@@ -2411,7 +2454,7 @@ async function fetchSessionChildren(rootSessionId: string, directory?: string, p
   pendingChildFetchKeys.add(fetchKey);
   try {
     const data = (await opencodeApi.getSessionChildren(
-      OPENCODE_BASE_URL,
+      credentials.baseUrl.value,
       rootSessionId,
       undefined,
       { instanceDirectory: instanceDirectory || undefined },
@@ -2442,7 +2485,7 @@ async function fetchSessionChildren(rootSessionId: string, directory?: string, p
 
 async function fetchHomePath() {
   try {
-    const data = (await opencodeApi.getPathInfo(OPENCODE_BASE_URL)) as {
+    const data = (await opencodeApi.getPathInfo(credentials.baseUrl.value)) as {
       home?: string;
       worktree?: string;
     };
@@ -2460,7 +2503,7 @@ async function fetchHomePath() {
 async function fetchProjects(directory?: string) {
   projectError.value = '';
   try {
-    const data = (await opencodeApi.listProjects(OPENCODE_BASE_URL, directory)) as ProjectInfo[];
+    const data = (await opencodeApi.listProjects(credentials.baseUrl.value, directory)) as ProjectInfo[];
     const list = Array.isArray(data) ? data : [];
     list.forEach((project) => {
       const color = project.color ?? project.icon?.color;
@@ -2553,7 +2596,7 @@ async function listSessionsByDirectory(
 ) {
   sessionError.value = '';
   try {
-    const data = (await opencodeApi.listSessions(OPENCODE_BASE_URL, options)) as SessionInfo[];
+    const data = (await opencodeApi.listSessions(credentials.baseUrl.value, options)) as SessionInfo[];
     return Array.isArray(data) ? data : [];
   } catch (error) {
     const message = `Session load failed: ${toErrorMessage(error)}`;
@@ -2580,7 +2623,7 @@ async function fetchWorktrees(directory?: string) {
   if (!directory) return;
   try {
     const baseDir = directory.trim();
-    const data = await opencodeApi.listWorktrees(OPENCODE_BASE_URL, baseDir);
+    const data = await opencodeApi.listWorktrees(credentials.baseUrl.value, baseDir);
     const list = Array.isArray(data)
       ? data.filter((entry): entry is string => typeof entry === 'string')
       : [];
@@ -2602,7 +2645,7 @@ async function fetchWorktreeMeta(directory: string) {
   const requestId = ++worktreeMetaRequestId;
   worktreeMetaRequestIdByDir.set(normalized, requestId);
   try {
-    const data = (await opencodeApi.getVcsInfo(OPENCODE_BASE_URL, trimmed)) as VcsInfo;
+    const data = (await opencodeApi.getVcsInfo(credentials.baseUrl.value, trimmed)) as VcsInfo;
     if (!data || typeof data.branch !== 'string') return;
     if (worktreeMetaRequestIdByDir.get(normalized) !== requestId) return;
     sessionGraphStore.setSandboxBranch(normalized, data.branch);
@@ -2662,7 +2705,7 @@ async function createWorktree() {
   }
   try {
     const data = (await opencodeApi.createWorktree(
-      OPENCODE_BASE_URL,
+      credentials.baseUrl.value,
       projectDirectory.value,
     )) as WorktreeInfo;
     if (data && typeof data.directory === 'string') {
@@ -2685,7 +2728,7 @@ async function createWorktreeFromWorktree(worktree: string) {
   }
   try {
     const data = (await opencodeApi.createWorktree(
-      OPENCODE_BASE_URL,
+      credentials.baseUrl.value,
       worktree,
     )) as WorktreeInfo;
     if (data && typeof data.directory === 'string') {
@@ -2696,7 +2739,7 @@ async function createWorktreeFromWorktree(worktree: string) {
 
       try {
         const session = (await opencodeApi.createSession(
-          OPENCODE_BASE_URL,
+          credentials.baseUrl.value,
           data.directory,
         )) as SessionInfo;
         if (session && typeof session.id === 'string') {
@@ -2731,7 +2774,7 @@ async function deleteWorktree(directory: string) {
   const targetDir = directory.replace(/\/+$/, '');
   if (baseDir && targetDir === baseDir) return;
   try {
-    await opencodeApi.deleteWorktree(OPENCODE_BASE_URL, projectDirectory.value, targetDir);
+    await opencodeApi.deleteWorktree(credentials.baseUrl.value, projectDirectory.value, targetDir);
     if (normalizeDirectory(activeDirectory.value) === targetDir) activeDirectory.value = '';
     void fetchWorktrees(projectDirectory.value || undefined);
   } catch (error) {
@@ -2748,7 +2791,7 @@ async function createNewSession() {
   sessionError.value = '';
   try {
     const data = (await opencodeApi.createSession(
-      OPENCODE_BASE_URL,
+      credentials.baseUrl.value,
       activeDirectory.value || undefined,
     )) as SessionInfo;
     if (data && typeof data.id === 'string') {
@@ -2797,7 +2840,7 @@ async function deleteSession(sessionId: string) {
   if (!sessionId) return;
   try {
     const directory = activeDirectory.value.trim();
-    await opencodeApi.deleteSession(OPENCODE_BASE_URL, sessionId, directory || undefined);
+    await opencodeApi.deleteSession(credentials.baseUrl.value, sessionId, directory || undefined);
     if (selectedSessionId.value === sessionId) selectedSessionId.value = '';
     removeSessionFromGraph(sessionId);
     deleteSessionStatus(sessionId, selectedProjectId.value);
@@ -2814,7 +2857,7 @@ async function archiveSession(sessionId: string) {
   try {
     const directory = activeDirectory.value.trim();
     const data = (await opencodeApi.updateSession(
-      OPENCODE_BASE_URL,
+      credentials.baseUrl.value,
       sessionId,
       { time: { archived: Date.now() } },
       directory || undefined,
@@ -2835,7 +2878,7 @@ async function handleForkMessage(payload: { sessionId: string; messageId: string
   try {
     sendStatus.value = 'Forking...';
     const data = (await opencodeApi.forkSession(
-      OPENCODE_BASE_URL,
+      credentials.baseUrl.value,
       payload.sessionId,
       payload.messageId,
       activeDirectory.value.trim() || undefined,
@@ -2863,7 +2906,7 @@ async function handleRevertMessage(payload: { sessionId: string; messageId: stri
   try {
     sendStatus.value = 'Reverting...';
     await opencodeApi.revertSession(
-      OPENCODE_BASE_URL,
+      credentials.baseUrl.value,
       payload.sessionId,
       payload.messageId,
       activeDirectory.value.trim() || undefined,
@@ -2911,7 +2954,7 @@ async function bootstrapSessionGraph() {
         limit: ROOT_SESSION_BOOTSTRAP_LIMIT,
       });
       setSessions(roots, directory);
-      const statusMap = (await opencodeApi.getSessionStatusMap(OPENCODE_BASE_URL, undefined, {
+      const statusMap = (await opencodeApi.getSessionStatusMap(credentials.baseUrl.value, undefined, {
         instanceDirectory: directory,
       })) as Record<string, { type?: string }>;
       const statusEntries: [string, SessionStatusType][] = [];
@@ -2970,7 +3013,7 @@ async function reconcileSessionGraphFromScopes() {
   const directories = collectKnownSandboxDirectories();
   await Promise.all(
     directories.map(async (directory) => {
-      const statusMap = (await opencodeApi.getSessionStatusMap(OPENCODE_BASE_URL, undefined, {
+      const statusMap = (await opencodeApi.getSessionStatusMap(credentials.baseUrl.value, undefined, {
         instanceDirectory: directory,
       })) as Record<string, { type?: string }>;
       const statusEntries: [string, SessionStatusType][] = [];
@@ -3027,7 +3070,7 @@ async function fetchProviders(force = false) {
   providersFetchCount.value += 1;
   log('providers fetch start', providersFetchCount.value);
   try {
-    const data = (await opencodeApi.listProviders(OPENCODE_BASE_URL)) as ProviderResponse;
+    const data = (await opencodeApi.listProviders(credentials.baseUrl.value)) as ProviderResponse;
     providers.value = Array.isArray(data.providers) ? data.providers : [];
     const models: Array<{
       id: string;
@@ -3109,7 +3152,7 @@ async function fetchAgents() {
   if (agentsLoading.value) return;
   agentsLoading.value = true;
   try {
-    const data = (await opencodeApi.listAgents(OPENCODE_BASE_URL)) as AgentInfo[];
+    const data = (await opencodeApi.listAgents(credentials.baseUrl.value)) as AgentInfo[];
     agents.value = Array.isArray(data) ? data : [];
     const options = agents.value
       .filter((agent) => agent.mode === 'primary' || agent.mode === 'all')
@@ -3143,7 +3186,7 @@ async function fetchCommands(directory?: string) {
   if (commandsLoading.value) return;
   commandsLoading.value = true;
   try {
-    const data = (await opencodeApi.listCommands(OPENCODE_BASE_URL, directory)) as CommandInfo[];
+    const data = (await opencodeApi.listCommands(credentials.baseUrl.value, directory)) as CommandInfo[];
     const list = Array.isArray(data) ? data : [];
     list.sort((a, b) => a.name.localeCompare(b.name));
     commands.value = list;
@@ -3163,7 +3206,7 @@ async function fetchSessionStatus(directory?: string) {
   const requestId = ++sessionStatusRequestId;
   const directoryAtRequest = directory ?? '';
   try {
-    const data = (await opencodeApi.getSessionStatusMap(OPENCODE_BASE_URL, undefined, {
+    const data = (await opencodeApi.getSessionStatusMap(credentials.baseUrl.value, undefined, {
       instanceDirectory: directoryAtRequest || undefined,
     })) as Record<string, { type?: string }>;
     if (requestId !== sessionStatusRequestId) return;
@@ -3196,7 +3239,7 @@ async function fetchSessionStatus(directory?: string) {
 
 async function fetchPendingPermissions(directory?: string) {
   try {
-    const data = await opencodeApi.listPendingPermissions(OPENCODE_BASE_URL, directory);
+    const data = await opencodeApi.listPendingPermissions(credentials.baseUrl.value, directory);
     if (!Array.isArray(data)) return;
     data
       .map((entry) => parsePermissionRequest(entry))
@@ -3212,7 +3255,7 @@ async function fetchPendingPermissions(directory?: string) {
 
 async function fetchPendingQuestions(directory?: string) {
   try {
-    const data = await opencodeApi.listPendingQuestions(OPENCODE_BASE_URL, directory);
+    const data = await opencodeApi.listPendingQuestions(credentials.baseUrl.value, directory);
     if (!Array.isArray(data)) return;
     data
       .map((entry) => parseQuestionRequest(entry))
@@ -3718,7 +3761,7 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
   const requestedDirectory = !isSubagentMessage ? getSelectedWorktreeDirectory() : '';
   try {
     const directory = getSelectedWorktreeDirectory();
-    const data = (await opencodeApi.listSessionMessages(OPENCODE_BASE_URL, sessionId, {
+    const data = (await opencodeApi.listSessionMessages(credentials.baseUrl.value, sessionId, {
       directory: directory || undefined,
     })) as Array<Record<string, unknown>>;
     if (!Array.isArray(data)) return;
@@ -3976,7 +4019,7 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
 }
 
 function buildPtyWsUrl(path: string, directory?: string) {
-  return opencodeApi.createWsUrl(OPENCODE_BASE_URL, path, { directory });
+  return opencodeApi.createWsUrl(credentials.baseUrl.value, path, { directory });
 }
 
 function parsePtyInfo(value: unknown): PtyInfo | null {
@@ -3995,14 +4038,14 @@ function parsePtyInfo(value: unknown): PtyInfo | null {
 }
 
 async function fetchPtyList(directory?: string) {
-  const data = await opencodeApi.listPtys(OPENCODE_BASE_URL, directory);
+  const data = await opencodeApi.listPtys(credentials.baseUrl.value, directory);
   if (!Array.isArray(data)) return [] as PtyInfo[];
   return data.map(parsePtyInfo).filter((pty): pty is PtyInfo => Boolean(pty));
 }
 
 async function createPtySession(sessionId: string, command?: string, args?: string[]) {
   const directory = activeDirectory.value || undefined;
-  const data = await opencodeApi.createPty(OPENCODE_BASE_URL, {
+  const data = await opencodeApi.createPty(credentials.baseUrl.value, {
     directory,
     command,
     args,
@@ -4013,7 +4056,7 @@ async function createPtySession(sessionId: string, command?: string, args?: stri
 }
 
 async function updatePtySize(ptyId: string, rows: number, cols: number, directory?: string) {
-  const data = await opencodeApi.updatePtySize(OPENCODE_BASE_URL, ptyId, {
+  const data = await opencodeApi.updatePtySize(credentials.baseUrl.value, ptyId, {
     directory,
     rows,
     cols,
@@ -4384,7 +4427,7 @@ function runDebugCommand(args: string): { ok: boolean; message: string } {
 async function sendCommand(sessionId: string, command: CommandInfo, commandArgs: string) {
   if (!ensureConnectionReady('Sending commands')) return;
   const directory = activeDirectory.value.trim();
-  await opencodeApi.sendCommand(OPENCODE_BASE_URL, sessionId, {
+  await opencodeApi.sendCommand(credentials.baseUrl.value, sessionId, {
     directory: directory || undefined,
     command: command.name,
     arguments: commandArgs,
@@ -4461,7 +4504,7 @@ async function sendMessage() {
         })),
       );
     }
-    await opencodeApi.sendPromptAsync(OPENCODE_BASE_URL, sessionId, {
+    await opencodeApi.sendPromptAsync(credentials.baseUrl.value, sessionId, {
       directory,
       agent: selectedMode.value,
       model: {
@@ -4491,9 +4534,9 @@ async function abortSession() {
     const directory = activeDirectory.value.trim();
     const busyDescendants = busyDescendantSessionIds.value;
     const abortPromises = [
-      opencodeApi.abortSession(OPENCODE_BASE_URL, sessionId, directory || undefined),
+      opencodeApi.abortSession(credentials.baseUrl.value, sessionId, directory || undefined),
       ...busyDescendants.map((sid) =>
-        opencodeApi.abortSession(OPENCODE_BASE_URL, sid, directory || undefined).catch(() => {}),
+        opencodeApi.abortSession(credentials.baseUrl.value, sid, directory || undefined).catch(() => {}),
       ),
     ];
     await Promise.all(abortPromises);
@@ -4812,14 +4855,17 @@ const toolRendererHelpers = {
   DefaultContent,
 };
 
-const ge = useGlobalEvents(OPENCODE_BASE_URL);
-
+const ge = useGlobalEvents(credentials.baseUrl.value);
 const sessionScope = ge.session(selectedSessionId, sessionParentRecord);
 const mainSessionScope = ge.mainSession(selectedSessionId);
 const msg = useMessages(sessionScope);
 reasoning.bindScope(sessionScope);
 
 watch(selectedSessionId, reloadSelectedSessionState, { immediate: true });
+
+watch(() => credentials.authHeader.value, (authHeader) => {
+  opencodeApi.setDefaultAuthorization(authHeader);
+}, { immediate: true });
 
 function matchesSelectedProject(sessionInfo: SessionInfo) {
   if (!sessionInfo.directory) return true;
@@ -4935,7 +4981,7 @@ async function renderReadHtmlFromApi(params: {
   const requestPath = splitFileContentDirectoryAndPath(params.path, directory);
 
   try {
-    const data = (await opencodeApi.readFileContent(OPENCODE_BASE_URL, {
+    const data = (await opencodeApi.readFileContent(credentials.baseUrl.value, {
       directory: requestPath.directory,
       path: requestPath.path,
     })) as FileContentResponse;
@@ -5263,7 +5309,7 @@ async function reloadTodosForAllowedSessions() {
   await Promise.all(
     sessionIds.map(async (id) => {
       try {
-        const data = await opencodeApi.getSessionTodos(OPENCODE_BASE_URL, id, directory);
+        const data = await opencodeApi.getSessionTodos(credentials.baseUrl.value, id, directory);
         nextTodos[id] = normalizeTodoItems(data);
       } catch (error) {
         nextTodos[id] = [];
@@ -5428,7 +5474,7 @@ async function loadTreePath(path: string) {
     treeError.value = '';
   }
   try {
-    const data = await opencodeApi.listFiles(OPENCODE_BASE_URL, {
+    const data = await opencodeApi.listFiles(credentials.baseUrl.value, {
       directory,
       path,
     });
@@ -5493,7 +5539,7 @@ async function refreshSessionDiff() {
   }
   const directory = activeDirectory.value.trim();
   try {
-    const data = await opencodeApi.getSessionDiff(OPENCODE_BASE_URL, {
+    const data = await opencodeApi.getSessionDiff(credentials.baseUrl.value, {
       sessionID: sessionId,
       directory,
     });
@@ -5742,7 +5788,7 @@ async function openFileViewer(path: string) {
    try {
       const requestPath = splitFileContentDirectoryAndPath(path, directory);
 
-      const data = (await opencodeApi.readFileContent(OPENCODE_BASE_URL, {
+      const data = (await opencodeApi.readFileContent(credentials.baseUrl.value, {
         directory: requestPath.directory,
         path: requestPath.path,
       })) as FileContentResponse;
@@ -7177,7 +7223,7 @@ function prunePermissionEntries() {
 async function sendPermissionReply(requestId: string, reply: PermissionReply) {
   if (!ensureConnectionReady('Permission reply')) return;
   const directory = activeDirectory.value.trim();
-  await opencodeApi.replyPermission(OPENCODE_BASE_URL, requestId, {
+  await opencodeApi.replyPermission(credentials.baseUrl.value, requestId, {
     directory: directory || undefined,
     reply,
   });
@@ -7305,7 +7351,7 @@ function normalizeQuestionAnswers(answers: QuestionAnswer[]) {
 async function sendQuestionReply(requestId: string, answers: QuestionAnswer[]) {
   if (!ensureConnectionReady('Question reply')) return;
   const directory = activeDirectory.value.trim();
-  await opencodeApi.replyQuestion(OPENCODE_BASE_URL, requestId, {
+  await opencodeApi.replyQuestion(credentials.baseUrl.value, requestId, {
     directory: directory || undefined,
     answers: normalizeQuestionAnswers(answers),
   });
@@ -7314,7 +7360,7 @@ async function sendQuestionReply(requestId: string, answers: QuestionAnswer[]) {
 async function sendQuestionReject(requestId: string) {
   if (!ensureConnectionReady('Question reject')) return;
   const directory = activeDirectory.value.trim();
-  await opencodeApi.rejectQuestion(OPENCODE_BASE_URL, requestId, directory || undefined);
+  await opencodeApi.rejectQuestion(credentials.baseUrl.value, requestId, directory || undefined);
 }
 
 async function handleQuestionReply(payload: { requestId: string; answers: QuestionAnswer[] }) {
@@ -7428,7 +7474,7 @@ async function startInitialization() {
   try {
     connectionState.value = 'connecting';
     initLoadingMessage.value = 'Connecting to SSE stream...';
-    await ge.connect({ failFast: true, timeoutMs: 5000 });
+    await ge.connect({ failFast: true, timeoutMs: 5000, authorization: credentials.authHeader.value });
     connectionState.value = 'bootstrapping';
     initLoadingMessage.value = 'Loading server path...';
     await fetchHomePath();
@@ -7450,6 +7496,8 @@ async function startInitialization() {
     }
     connectionState.value = 'ready';
     uiInitState.value = 'ready';
+    await fetchProviders();
+    await fetchAgents();
   } catch (error) {
     connectionState.value = 'error';
     initErrorMessage.value = toErrorMessage(error);
@@ -7457,6 +7505,11 @@ async function startInitialization() {
   } finally {
     initializationInFlight = false;
   }
+}
+
+function handleLogin() {
+  credentials.save(loginUrl.value, loginUsername.value, loginPassword.value);
+  void startInitialization();
 }
 
 onMounted(() => {
@@ -7467,8 +7520,14 @@ onMounted(() => {
     });
   }
   hydrateShellPtyStorage();
-  fetchProviders();
-  fetchAgents();
+  
+  credentials.load();
+  
+  if (credentials.isConfigured.value) {
+    void startInitialization();
+  } else {
+    uiInitState.value = 'login';
+  }
   const availableThemes = getBundledThemeNames();
   const chosenTheme = pickShikiTheme(availableThemes);
   if (chosenTheme) shikiTheme.value = chosenTheme;
@@ -7501,7 +7560,14 @@ onMounted(() => {
     }),
   );
   globalEventUnsubscribers.push(
-    ge.on('connection.error', () => {
+    ge.on('connection.error', (payload) => {
+      if (payload.statusCode === 401) {
+        credentials.clear();
+        uiInitState.value = 'login';
+        initErrorMessage.value = 'Authentication failed. Please login again.';
+        connectionState.value = 'error';
+        return;
+      }
       if (uiInitState.value === 'loading') {
         connectionState.value = 'error';
         initErrorMessage.value = 'Failed to connect to SSE stream.';
@@ -7715,7 +7781,6 @@ onMounted(() => {
       });
     }),
   );
-  void startInitialization();
 });
 onBeforeUnmount(() => {
   window.removeEventListener('pointermove', handlePointerMove);
@@ -7807,6 +7872,44 @@ onBeforeUnmount(() => {
 
 .app-loading-retry:hover {
   background: #334155;
+}
+
+.app-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.app-login-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.app-login-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.app-login-input::placeholder {
+  color: #64748b;
+}
+
+.app-login-input:focus {
+  outline: none;
+  border-color: #475569;
+  background: #0f172a;
+}
+
+.app-error-message {
+  color: #f87171;
 }
 
 @keyframes app-loading-spin {

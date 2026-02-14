@@ -6,12 +6,6 @@ type RequestOptions = {
   authorization?: string;
 };
 
-let defaultAuthorization: string | undefined;
-
-export function setDefaultAuthorization(auth: string | undefined) {
-  defaultAuthorization = auth;
-}
-
 function buildQuery(params?: Record<string, QueryValue>) {
   if (!params) return '';
   const searchParams = new URLSearchParams();
@@ -45,8 +39,7 @@ function buildHeaders(options?: RequestOptions, contentType?: string) {
   const headers: Record<string, string> = {};
   if (contentType) headers['Content-Type'] = contentType;
   if (options?.instanceDirectory) headers['x-opencode-directory'] = options.instanceDirectory;
-  const auth = options?.authorization ?? defaultAuthorization;
-  if (auth) headers['Authorization'] = auth;
+  if (options?.authorization) headers['Authorization'] = options.authorization;
   return Object.keys(headers).length > 0 ? headers : undefined;
 }
 

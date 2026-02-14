@@ -4440,6 +4440,7 @@ function findCommandByName(name: string) {
 
 const DEBUG_SUBCOMMANDS: Record<string, string> = {
   session: 'Show session graph tree',
+  notification: 'Dump pending notification state',
 };
 
 function formatSessionGraphDump(): string {
@@ -4563,6 +4564,114 @@ function openDebugSessionViewer() {
   });
 }
 
+function formatNotificationDump(): string {
+  const lines: string[] = [];
+  const map = pendingNotificationsBySessionId.value;
+  const order = notificationSessionOrder.value;
+  const parentMap = sessionParentById.value;
+
+  lines.push(`Notification State`);
+  lines.push(`  pendingNotificationsBySessionId: ${map.size} session(s)`);
+  lines.push(`  notificationSessionOrder: [${order.length}] ${order.join(', ') || '(empty)'}`);
+  lines.push(`  selectedSessionId: ${selectedSessionId.value || '(none)'}`);
+  lines.push(`  allowedSessionIds: [${allowedSessionIds.value.size}]`);
+  lines.push('');
+
+  // Computed notificationSessions (what TopPanel sees)
+  const computed = notificationSessions.value;
+  lines.push(`Computed notificationSessions (TopPanel badge): ${computed.length} entry(s), total count = ${computed.reduce((s, e) => s + e.count, 0)}`);
+  for (const entry of computed) {
+    const session = sessions.value.find((s) => s.id === entry.sessionId);
+    const label = session ? sessionLabel(session) : '(unknown session)';
+    const parentId = parentMap.get(entry.sessionId);
+    const parentInfo = parentId ? ` parent=${parentId}` : ' (root)';
+    lines.push(`  ${entry.sessionId}  count=${entry.count}  "${label}"${parentInfo}`);
+  }
+  lines.push('');
+
+  // Full map dump
+  lines.push(`Full pendingNotificationsBySessionId:`);
+  if (map.size === 0) {
+    lines.push('  (empty)');
+  }
+  for (const [sessionId, requestIds] of map.entries()) {
+    const session = sessions.value.find((s) => s.id === sessionId);
+    const label = session ? sessionLabel(session) : '(unknown session)';
+    const parentId = parentMap.get(sessionId);
+    const parentInfo = parentId ? ` parent=${parentId}` : ' (root)';
+    const isAllowed = allowedSessionIds.value.has(sessionId);
+    const isSelected = sessionId === selectedSessionId.value;
+    const flags: string[] = [];
+    if (isSelected) flags.push('SELECTED');
+    if (isAllowed) flags.push('ALLOWED');
+    if (parentId) flags.push('CHILD');
+    const flagStr = flags.length > 0 ? `  [${flags.join(', ')}]` : '';
+    lines.push(`  ${sessionId}  "${label}"${parentInfo}${flagStr}`);
+    for (const requestId of requestIds) {
+      const isIdle = requestId.startsWith('idle:');
+      const type = isIdle ? 'idle' : 'permission/question';
+      lines.push(`    - ${requestId}  (${type})`);
+    }
+  }
+  lines.push('');
+
+  // Order vs Map consistency check
+  const orphanedInOrder = order.filter((id) => !map.has(id));
+  const missingFromOrder = Array.from(map.keys()).filter((id) => !order.includes(id));
+  if (orphanedInOrder.length > 0 || missingFromOrder.length > 0) {
+    lines.push(`Consistency Issues:`);
+    if (orphanedInOrder.length > 0) {
+      lines.push(`  In notificationSessionOrder but NOT in map: ${orphanedInOrder.join(', ')}`);
+    }
+    if (missingFromOrder.length > 0) {
+      lines.push(`  In map but NOT in notificationSessionOrder: ${missingFromOrder.join(', ')}`);
+    }
+    lines.push('');
+  }
+
+  // Pending permissions & questions currently shown as floating windows
+  const permissionEntries = fw.entries.value.filter((e) => e.key.startsWith('permission:'));
+  const questionEntries = fw.entries.value.filter((e) => e.key.startsWith('question:'));
+  lines.push(`Active Floating Windows:`);
+  lines.push(`  Permission windows: ${permissionEntries.length}`);
+  for (const entry of permissionEntries) {
+    const req = entry.props?.request as { id?: string; sessionID?: string } | undefined;
+    lines.push(`    - ${entry.key}  session=${req?.sessionID ?? '?'}  request=${req?.id ?? '?'}`);
+  }
+  lines.push(`  Question windows: ${questionEntries.length}`);
+  for (const entry of questionEntries) {
+    const req = entry.props?.request as { id?: string; sessionID?: string } | undefined;
+    lines.push(`    - ${entry.key}  session=${req?.sessionID ?? '?'}  request=${req?.id ?? '?'}`);
+  }
+
+  return lines.join('\n');
+}
+
+function openDebugNotificationViewer() {
+  const key = 'debug:notification';
+  const content = formatNotificationDump();
+  const pos = getFileViewerPosition(0.15, 0.1);
+  if (fw.has(key)) fw.close(key);
+  fw.open(key, {
+    component: FileViewerContent,
+    props: {
+      fileContent: content,
+      lang: 'text',
+      gutterMode: 'none',
+      theme: shikiTheme.value,
+    },
+    closable: true,
+    resizable: true,
+    scroll: 'manual',
+    title: 'Debug: Notifications',
+    x: pos.x,
+    y: pos.y,
+    width: FILE_VIEWER_WINDOW_WIDTH,
+    height: FILE_VIEWER_WINDOW_HEIGHT,
+    expiry: Infinity,
+  });
+}
+
 function runDebugCommand(args: string): { ok: boolean; message: string } {
   const sub = args.trim().toLowerCase();
   if (!sub || sub === 'help') {
@@ -4575,6 +4684,10 @@ function runDebugCommand(args: string): { ok: boolean; message: string } {
   if (sub === 'session' || sub === 'sessions') {
     openDebugSessionViewer();
     return { ok: true, message: 'Session graph opened.' };
+  }
+  if (sub === 'notification' || sub === 'notifications') {
+    openDebugNotificationViewer();
+    return { ok: true, message: 'Notification dump opened.' };
   }
   return { ok: false, message: `Unknown debug subcommand: ${sub}. Type /debug help for a list.` };
 }

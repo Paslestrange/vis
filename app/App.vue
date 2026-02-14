@@ -13,6 +13,7 @@
           @delete-active-directory="deleteWorktree"
           @delete-session="deleteSession"
           @select-session="handleTopPanelSessionSelect"
+          @open-directory="openProjectPicker"
         />
       </header>
       <main ref="outputEl" class="app-output">
@@ -599,6 +600,8 @@ type ProjectInfo = {
   id: string;
   worktree?: string;
   sandboxes?: string[];
+  color?: string;
+  icon?: { color?: string };
 };
 
 type SessionInfo = {
@@ -632,6 +635,7 @@ type TopPanelTreeWorktree = {
   directory: string;
   label: string;
   name?: string;
+  projectColor?: string;
   sandboxes: TopPanelTreeSandbox[];
 };
 
@@ -766,6 +770,7 @@ const projectDirectory = ref('');
 const homePath = ref('');
 const serverWorktreePath = ref('');
 const worktreeNameByDirectory = ref<Record<string, string>>({});
+const projectColorById = ref<Record<string, string>>({});
 const loadingWorktreeNameDirectories = new Set<string>();
 const initialQuery = readQuerySelection();
 const isProjectPickerOpen = ref(false);
@@ -904,10 +909,13 @@ const topPanelTreeData = computed<TopPanelWorktree[]>(() => {
         .reduce((max, session) => Math.max(max, session.timeUpdated ?? 0), 0);
 
       const name = worktreeNameByDirectory.value[worktreeDirectory]?.trim() || undefined;
+      const projectId = sessionGraphStore.resolveProjectIDForDirectory(worktreeDirectory);
+      const projectColor = projectId ? projectColorById.value[projectId] : undefined;
       return {
         directory: worktreeDirectory,
         label: replaceHomePrefix(worktreeDirectory),
         name,
+        projectColor,
         sandboxes: sandboxEntries,
         latestUpdated: latestSandboxUpdated,
       };
@@ -2453,11 +2461,18 @@ async function fetchProjects(directory?: string) {
     const data = (await opencodeApi.listProjects(OPENCODE_BASE_URL, directory)) as ProjectInfo[];
     const list = Array.isArray(data) ? data : [];
     list.forEach((project) => {
+      const color = project.color ?? project.icon?.color;
+      if (typeof color === 'string' && color.trim()) {
+        projectColorById.value[project.id] = color.trim();
+      }
       const worktree = typeof project.worktree === 'string' ? project.worktree : '';
       const sandboxes = Array.isArray(project.sandboxes)
         ? project.sandboxes.filter((entry): entry is string => typeof entry === 'string')
         : [];
       sessionGraphStore.syncSandboxes(worktree, sandboxes);
+      if (worktree && project.id) {
+        sessionGraphStore.setProjectRoot(project.id, worktree);
+      }
     });
     markSessionGraphChanged();
   } catch (error) {
@@ -2466,11 +2481,18 @@ async function fetchProjects(directory?: string) {
 }
 
 function upsertProject(next: ProjectInfo) {
+  const color = next.color ?? next.icon?.color;
+  if (typeof color === 'string' && color.trim()) {
+    projectColorById.value[next.id] = color.trim();
+  }
   const worktree = typeof next.worktree === 'string' ? next.worktree : '';
   const sandboxes = Array.isArray(next.sandboxes)
     ? next.sandboxes.filter((entry): entry is string => typeof entry === 'string')
     : [];
   sessionGraphStore.syncSandboxes(worktree, sandboxes);
+  if (worktree && next.id) {
+    sessionGraphStore.setProjectRoot(next.id, worktree);
+  }
   markSessionGraphChanged();
 }
 
@@ -2543,7 +2565,12 @@ function refreshSessionsForDirectory(directory?: string) {
     clearSessions();
     return Promise.resolve();
   }
-  return fetchSessions({ instanceDirectory: directory, roots: true, limit: ROOT_SESSION_BOOTSTRAP_LIMIT });
+  return fetchSessions({
+    directory,
+    instanceDirectory: directory,
+    roots: true,
+    limit: ROOT_SESSION_BOOTSTRAP_LIMIT,
+  });
 }
 
 async function fetchWorktrees(directory?: string) {
@@ -2664,6 +2691,25 @@ async function createWorktreeFromWorktree(worktree: string) {
       markSessionGraphChanged();
       projectDirectory.value = worktree;
       activeDirectory.value = data.directory;
+
+      try {
+        const session = (await opencodeApi.createSession(
+          OPENCODE_BASE_URL,
+          data.directory,
+        )) as SessionInfo;
+        if (session && typeof session.id === 'string') {
+          upsertSessionGraph(session);
+          selectedSessionId.value = session.id;
+          if (session.projectID) {
+            sessionGraphStore.setSandboxProjectID(data.directory, session.projectID);
+            markSessionGraphChanged();
+          }
+          resolveDefaultAgentModel();
+          persistComposerDraftForCurrentContext();
+        }
+      } catch (sessionError) {
+        sessionError.value = `Session create failed: ${toErrorMessage(sessionError)}`;
+      }
     }
     void fetchWorktrees(worktree || undefined);
   } catch (error) {
@@ -2812,16 +2858,30 @@ async function handleProjectDirectorySelect(directory: string) {
   projectDirectory.value = directory;
 }
 
-function collectProjectWorktreeDirectories() {
-  return sessionGraphStore.getWorktreeList();
+function collectKnownSandboxDirectories() {
+  const set = new Set<string>();
+  sessionGraphStore.getWorktreeList().forEach((worktreeDirectory) => {
+    const normalizedWorktree = worktreeDirectory.trim();
+    if (normalizedWorktree) set.add(normalizedWorktree);
+    sessionGraphStore.getSandboxList(worktreeDirectory).forEach((sandboxDirectory) => {
+      const normalizedSandbox = sandboxDirectory.trim();
+      if (normalizedSandbox) set.add(normalizedSandbox);
+    });
+  });
+  const active = activeDirectory.value.trim();
+  if (active) set.add(active);
+  const projectRoot = projectDirectory.value.trim();
+  if (projectRoot) set.add(projectRoot);
+  return Array.from(set);
 }
 
 async function bootstrapSessionGraph() {
-  const directories = collectProjectWorktreeDirectories();
+  const directories = collectKnownSandboxDirectories();
   const uniqueDirectories = Array.from(new Set(directories.map((dir) => dir.trim()).filter(Boolean)));
   await Promise.all(
     uniqueDirectories.map(async (directory) => {
       const roots = await listSessionsByDirectory({
+        directory,
         instanceDirectory: directory,
         roots: true,
         limit: ROOT_SESSION_BOOTSTRAP_LIMIT,
@@ -2883,7 +2943,7 @@ function finalizeSelectionAfterBootstrap() {
 }
 
 async function reconcileSessionGraphFromScopes() {
-  const directories = collectProjectWorktreeDirectories();
+  const directories = collectKnownSandboxDirectories();
   await Promise.all(
     directories.map(async (directory) => {
       const statusMap = (await opencodeApi.getSessionStatusMap(OPENCODE_BASE_URL, undefined, {
@@ -4439,13 +4499,12 @@ watch(
     const adChanged = ad !== prevAd && typeof prevAd !== 'undefined';
     const sidChanged = sid !== prevSid && typeof prevSid !== 'undefined';
 
-    if (!pdChanged && !adChanged && !sidChanged) return;
+    // pd/ad が変わっていなければ何もしない（sid だけの変更は意図的なセッション切り替え）
+    if (!pdChanged && !adChanged) return;
 
-    // Atomic update detection: if all 3 changed simultaneously, skip clearing selectedSessionId
-    // This happens when handleTopPanelSessionSelect sets all 3 at once
-    const isAtomicUpdate = pdChanged && adChanged && sidChanged;
-
-    if (!isAtomicUpdate) {
+    // pd/ad が変わったが sid も同時に変わった場合 = 意図的な一括選択 → クリアしない
+    // pd/ad だけ変わった場合 = ディレクトリ切り替え → sid をクリア
+    if (!sidChanged) {
       selectedSessionId.value = '';
     }
 

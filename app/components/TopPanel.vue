@@ -1,144 +1,136 @@
 <template>
   <div class="top-panel">
-    <div v-if="copyToastVisible" class="copy-toast" role="status" aria-live="polite">Copied!</div>
     <div class="top-row">
-      <div class="top-field tree-dropdown-container">
+      <div class="top-left">OpenCode Visualizer</div>
+      <div class="top-center">
         <Dropdown
-          v-model="dropdownValue"
-          :label="selectedLabel"
-          placeholder="Select session..."
+          class="tree-dropdown-root"
+          :label="dropdownLabel"
+          placeholder="Select session"
           auto-close
-          class="tree-dropdown"
-          :disabled="false"
+          :popup-style="{ minWidth: '420px', width: 'min(680px, 90vw)', maxWidth: '90vw' }"
+          @select="onTreeSelect"
         >
+          <template #label>
+            <span v-if="selectedDisplay" class="selected-label">
+              <span class="selected-branch-badge">
+                <Icon icon="lucide:git-branch" :width="11" :height="11" />
+                {{ selectedDisplay.branch }}
+              </span>
+              <span class="selected-title">{{ selectedDisplay.title }}</span>
+            </span>
+            <span v-else class="selected-title">Select session</span>
+          </template>
           <template #default="{ close }">
             <div class="tree-menu">
               <div class="tree-search" @click.stop>
                 <Icon icon="lucide:search" class="search-icon" />
                 <input
+                  v-auto-focus
                   v-model="searchQuery"
                   type="text"
-                  placeholder="Search worktrees, sandboxes, sessions..."
+                  placeholder="Search sessions, branches, directories..."
                   class="search-input"
                   @click.stop
+                  @keydown.enter.prevent.stop="selectFirstSearchResult(close)"
                 />
-                <button v-if="searchQuery" class="clear-search" @click.stop="searchQuery = ''">
+                <button v-if="searchQuery" type="button" class="clear-search" @click.stop="searchQuery = ''">
                   <Icon icon="lucide:x" />
                 </button>
               </div>
 
               <div class="tree-content">
-                <div v-if="filteredTreeData.length === 0" class="tree-empty">
-                  No matches found
+                <div v-if="displayedTree.length === 0" class="tree-empty">
+                  {{ searchQuery ? 'No matching sessions' : 'No worktrees' }}
                 </div>
 
                 <div
-                  v-for="worktree in filteredTreeData"
+                  v-for="worktree in displayedTree"
                   :key="worktree.directory"
-                  class="tree-group worktree-group"
+                  class="tree-worktree"
+                  :style="worktreeAccentStyle(worktree)"
                 >
-                  <div class="group-header worktree-header">
-                    <div class="header-main">
-                      <Icon icon="lucide:folder-git-2" class="group-icon" />
-                      <span class="group-label" :title="worktree.directory">
-                        {{ worktree.name ? `${worktree.name} (${worktree.label})` : worktree.label }}
-                      </span>
-                    </div>
-                    <div class="header-actions">
-                      <button
-                        type="button"
-                        class="action-button"
-                        title="Create new worktree from this worktree"
-                        @click.stop="handleCreateWorktree(worktree.directory, close)"
-                      >
-                        <Icon icon="lucide:copy-plus" />
-                      </button>
+                  <div class="tree-worktree-header">
+                    <div class="tree-header-main">
+                      <Icon icon="lucide:package" class="tree-header-icon" />
+                      <div class="tree-label">
+                        <span class="tree-label-name" :title="worktree.directory">{{ worktree.name || worktree.label }}</span>
+                        <small class="tree-label-type" :title="worktree.directory">{{ shortenPath(worktree.directory) }}</small>
+                      </div>
                     </div>
                   </div>
 
-                  <div class="group-children">
-                    <div
-                      v-for="sandbox in worktree.sandboxes"
-                      :key="sandbox.directory"
-                      class="tree-group sandbox-group"
-                    >
-                      <div class="group-header sandbox-header">
-                        <div class="header-main">
-                          <Icon icon="lucide:box" class="group-icon" />
-                          <span class="group-label" :title="sandbox.directory">
-                            {{ formatSandboxLabel(sandbox.directory, worktree.directory) }}
-                          </span>
-                          <span v-if="sandbox.branch" class="branch-badge">
-                            <Icon icon="lucide:git-branch" class="branch-icon" />
-                            {{ sandbox.branch }}
-                          </span>
-                        </div>
-                        <div class="header-actions">
-                          <button
-                            v-if="sandbox.branch"
-                            type="button"
-                            class="action-button"
-                            title="Copy branch name"
-                            @click.stop="copyText(sandbox.branch)"
-                          >
-                            <Icon icon="lucide:copy" />
-                          </button>
-                          <button
-                            v-if="canDeleteSandbox(sandbox.directory, worktree.directory)"
-                            type="button"
-                            class="action-button delete-button"
-                            title="Delete worktree"
-                            @click.stop="handleSandboxDelete(sandbox.directory, close)"
-                          >
-                            <Icon icon="lucide:trash-2" />
-                          </button>
+                  <div v-for="sandbox in worktree.sandboxes" :key="sandbox.directory" class="tree-sandbox">
+                    <div class="tree-sandbox-header">
+                      <div class="tree-header-main">
+                        <Icon icon="lucide:git-branch" class="tree-header-icon" />
+                        <div class="tree-label">
+                          <span class="tree-label-name" :title="sandbox.directory">{{ sandbox.branch || shortenPath(sandbox.directory) }}</span>
+                          <small class="tree-label-type" :title="sandbox.directory">{{ shortenPath(sandbox.directory) }}</small>
                         </div>
                       </div>
-
-                      <div class="group-children">
-                        <DropdownItem
-                          v-for="session in sandbox.sessions"
-                          :key="session.id"
-                          :value="session.id"
-                          class="session-item"
-                          :class="{ 'is-active': session.id === selectedSessionId }"
-                          @click="handleSessionSelect(worktree.directory, sandbox.directory, session.id, close)"
+                      <div class="tree-actions">
+                        <button type="button" class="tree-action-button fork" @click.stop="handleCreateWorktree(sandbox.directory, close)">
+                          <Icon icon="lucide:git-branch" :width="11" :height="11" />
+                        </button>
+                        <button
+                          v-if="canDeleteSandbox(sandbox.directory, worktree.directory)"
+                          type="button"
+                          class="tree-action-button danger"
+                          @click.stop="handleSandboxDelete(sandbox.directory, close)"
                         >
-                          <span class="session-status-icon" :title="session.status">
-                            {{ sessionStatusIcon(session.status) }}
-                          </span>
-                          <span class="dropdown-item-label">
-                            {{ session.title || session.slug || session.id }}
-                          </span>
-                          <div class="session-actions">
-                            <button
-                              type="button"
-                              class="action-button delete-button"
-                              title="Delete session"
-                              @click.stop="handleSessionDelete(session.id, close)"
-                            >
-                              <Icon icon="lucide:trash-2" />
-                            </button>
-                          </div>
-                        </DropdownItem>
+                          <Icon icon="lucide:trash-2" :width="11" :height="11" />
+                        </button>
                       </div>
+                    </div>
+
+                    <div
+                      v-for="session in sandbox.sessions"
+                      :key="session.id"
+                      class="tree-session-row"
+                    >
+                      <DropdownItem
+                        :value="{ worktree: worktree.directory, directory: sandbox.directory, sessionId: session.id }"
+                        :active="session.id === selectedSessionId"
+                      >
+                        <div class="tree-session-main">
+                          <span class="session-status-icon" :title="session.status">{{ sessionStatusIcon(session.status) }}</span>
+                          <span class="session-title">{{ session.title || session.slug || session.id }}</span>
+                        </div>
+                        <button
+                          type="button"
+                          class="tree-action-button danger session-del"
+                          @click.stop="handleSessionDelete(session.id, close)"
+                        >
+                          <Icon icon="lucide:trash-2" :width="11" :height="11" />
+                        </button>
+                      </DropdownItem>
                     </div>
                   </div>
                 </div>
               </div>
+
+              <div class="tree-footer">
+                <button type="button" class="tree-footer-button" @click="handleOpenDirectory(close)">Open</button>
+              </div>
             </div>
           </template>
         </Dropdown>
+
         <button type="button" class="control-button" @click="$emit('new-session')">
-          <Icon icon="lucide:plus" :width="12" :height="12" /> New
+          <Icon icon="lucide:plus" :width="12" :height="12" />
+          New
         </button>
+      </div>
+      <div class="top-right">
+        <button type="button" class="control-button" disabled title="stub">Logout</button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, ref, type Directive, nextTick } from 'vue';
 import { Icon } from '@iconify/vue';
 import Dropdown from './Dropdown.vue';
 import DropdownItem from './Dropdown/Item.vue';
@@ -155,15 +147,20 @@ export type TopPanelSandbox = {
   directory: string;
   branch?: string;
   sessions: TopPanelSession[];
-  latestUpdated: number;
 };
 
 export type TopPanelWorktree = {
   directory: string;
   label: string;
   name?: string;
+  projectColor?: string;
   sandboxes: TopPanelSandbox[];
-  latestUpdated: number;
+};
+
+type SessionSelectPayload = {
+  worktree: string;
+  directory: string;
+  sessionId: string;
 };
 
 const props = defineProps<{
@@ -175,126 +172,144 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (event: 'select-session', payload: { worktree: string; directory: string; sessionId: string }): void;
+  (event: 'select-session', payload: SessionSelectPayload): void;
   (event: 'create-worktree-from', worktree: string): void;
   (event: 'new-session'): void;
   (event: 'delete-active-directory', value: string): void;
   (event: 'delete-session', value: string): void;
+  (event: 'open-directory'): void;
 }>();
 
+const MAX_WORKTREES = 5;
+const MAX_SANDBOXES = 3;
+const MAX_SESSIONS = 5;
+
 const searchQuery = ref('');
-const copyToastVisible = ref(false);
-let copyToastTimer: ReturnType<typeof setTimeout> | null = null;
 
-// Dummy v-model for Dropdown to keep it happy, though we handle selection manually
-const dropdownValue = computed({
-  get: () => props.selectedSessionId,
-  set: () => { /* no-op */ },
-});
+const vAutoFocus: Directive<HTMLElement> = {
+  mounted(el) {
+    searchQuery.value = '';
+    nextTick(() => el.focus());
+  },
+};
 
-const selectedLabel = computed(() => {
-  // Find current session in tree
+const selectedDisplay = computed(() => {
+  const sid = props.selectedSessionId;
+  if (!sid) return null;
   for (const worktree of props.treeData) {
     for (const sandbox of worktree.sandboxes) {
-      const session = sandbox.sessions.find(s => s.id === props.selectedSessionId);
-      if (session) {
-        const status = sessionStatusIcon(session.status);
-        const title = session.title || session.slug || session.id;
-        const worktreeLabel = worktree.name || worktree.label;
-        const sandboxLabel = formatSandboxLabel(sandbox.directory, worktree.directory);
-        // Format: [Status] SessionTitle (Worktree / Sandbox)
-        // Shorten if needed
-        return `${status} ${title} (${worktreeLabel} / ${sandboxLabel})`;
-      }
+      const session = sandbox.sessions.find((candidate) => candidate.id === sid);
+      if (!session) continue;
+      const branch = sandbox.branch || shortenPath(sandbox.directory);
+      const title = session.title || session.slug || session.id;
+      return { branch, title };
     }
   }
-  return 'Select session...';
+  return { branch: 'unknown', title: sid };
 });
 
-const filteredTreeData = computed(() => {
-  const query = searchQuery.value.toLowerCase().trim();
-  
-  // 1. Filter phase
-  const filtered = props.treeData.map(worktree => {
-    const worktreeMatch = 
-      worktree.label.toLowerCase().includes(query) || 
-      (worktree.name && worktree.name.toLowerCase().includes(query));
+const dropdownLabel = computed(() => {
+  if (!selectedDisplay.value) return 'Select session';
+  return `${selectedDisplay.value.branch} / ${selectedDisplay.value.title}`;
+});
 
-    const sandboxes = worktree.sandboxes.map(sandbox => {
-      const sandboxLabel = formatSandboxLabel(sandbox.directory, worktree.directory);
-      const sandboxMatch = 
-        sandboxLabel.toLowerCase().includes(query) ||
-        (sandbox.branch && sandbox.branch.toLowerCase().includes(query));
+const displayedTree = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase();
+  let worktrees = props.treeData;
 
-      const sessions = sandbox.sessions.filter(session => {
-        if (worktreeMatch || sandboxMatch) return true;
-        const title = session.title || '';
-        const slug = session.slug || '';
-        return (
-          title.toLowerCase().includes(query) ||
-          slug.toLowerCase().includes(query) ||
-          session.id.toLowerCase().includes(query)
-        );
-      });
+  if (query) {
+    worktrees = worktrees
+      .map((worktree) => {
+        const worktreeMatches = matchesQuery(query, worktree.directory, worktree.label, worktree.name);
+        const sandboxes = worktree.sandboxes
+          .map((sandbox) => {
+            const sandboxMatches = matchesQuery(query, sandbox.directory, sandbox.branch);
+            const sessions = sandbox.sessions.filter((session) =>
+              worktreeMatches ||
+              sandboxMatches ||
+              matchesQuery(query, session.title, session.slug, session.id),
+            );
+            if (!worktreeMatches && !sandboxMatches && sessions.length === 0) return null;
+            return {
+              ...sandbox,
+              sessions: worktreeMatches || sandboxMatches ? sandbox.sessions : sessions,
+            };
+          })
+          .filter((sandbox): sandbox is TopPanelSandbox => sandbox !== null);
 
-      return {
-        ...sandbox,
-        sessions,
-        matches: sandboxMatch || sessions.length > 0
-      };
-    }).filter(s => worktreeMatch || s.matches);
-
-    return {
-      ...worktree,
-      sandboxes: sandboxes.map(({ matches: _, ...s }) => s),
-      matches: worktreeMatch || sandboxes.length > 0
-    };
-  }).filter(w => w.matches);
-
-  // 2. Limit phase (apply limits only if no search query)
-  if (!query) {
-    return filtered.slice(0, 5).map(worktree => ({
-      ...worktree,
-      sandboxes: worktree.sandboxes.slice(0, 3).map(sandbox => ({
-        ...sandbox,
-        sessions: sandbox.sessions.slice(0, 5)
-      }))
-    }));
+        if (!worktreeMatches && sandboxes.length === 0) return null;
+        return { ...worktree, sandboxes };
+      })
+      .filter((worktree): worktree is TopPanelWorktree => worktree !== null);
   }
 
-  return filtered.map(({ matches: _, ...w }) => w);
+  return worktrees.slice(0, MAX_WORKTREES).map((worktree) => ({
+    ...worktree,
+    sandboxes: worktree.sandboxes.slice(0, MAX_SANDBOXES).map((sandbox) => ({
+      ...sandbox,
+      sessions: sandbox.sessions.slice(0, MAX_SESSIONS),
+    })),
+  }));
 });
 
-function sessionStatusIcon(status: string) {
+function matchesQuery(query: string, ...fields: (string | undefined)[]) {
+  return fields.some((field) => field?.toLowerCase().includes(query));
+}
+
+function shortenPath(path: string) {
+  const homePath = props.homePath || '';
+  if (homePath && path.startsWith(homePath)) {
+    const replaced = path.replace(homePath, '~');
+    return replaced || '~';
+  }
+  return path;
+}
+
+function sessionStatusIcon(status: TopPanelSession['status']) {
   if (status === 'busy') return '🤔';
   if (status === 'retry') return '🔴';
   if (status === 'idle') return '🟢';
   return '⚪';
 }
 
-function formatSandboxLabel(path: string, worktreePath: string) {
-  const normalizedPath = path.replace(/\/+$/, '');
-  const normalizedWorktree = worktreePath.replace(/\/+$/, '');
-  
-  if (normalizedPath === normalizedWorktree) return '.';
-  
-  if (normalizedPath.startsWith(normalizedWorktree + '/')) {
-    return normalizedPath.slice(normalizedWorktree.length + 1);
-  }
-  
-  return path.split('/').pop() || path;
-}
-
 function canDeleteSandbox(directory: string, worktreeDirectory: string) {
-  // Can delete if it's not the main worktree root (unless it's a bare worktree maybe? logic copied from old TopPanel)
-  const normalizedDir = directory.replace(/\/+$/, '');
+  const normalizedDirectory = directory.replace(/\/+$/, '');
   const normalizedWorktree = worktreeDirectory.replace(/\/+$/, '');
-  return normalizedDir !== normalizedWorktree;
+  return normalizedDirectory !== normalizedWorktree;
 }
 
-function handleSessionSelect(worktree: string, directory: string, sessionId: string, close: () => void) {
-  emit('select-session', { worktree, directory, sessionId });
-  close();
+function worktreeAccentStyle(worktree: TopPanelWorktree) {
+  if (!worktree.projectColor) return undefined;
+  return {
+    borderLeft: `3px solid ${worktree.projectColor}`,
+  };
+}
+
+function onTreeSelect(payload: unknown) {
+  if (!payload || typeof payload !== 'object') return;
+  const value = payload as Partial<SessionSelectPayload>;
+  if (!value.worktree || !value.directory || !value.sessionId) return;
+  emit('select-session', {
+    worktree: value.worktree,
+    directory: value.directory,
+    sessionId: value.sessionId,
+  });
+}
+
+function selectFirstSearchResult(close: () => void) {
+  for (const worktree of displayedTree.value) {
+    for (const sandbox of worktree.sandboxes) {
+      const session = sandbox.sessions[0];
+      if (!session) continue;
+      emit('select-session', {
+        worktree: worktree.directory,
+        directory: sandbox.directory,
+        sessionId: session.id,
+      });
+      close();
+      return;
+    }
+  }
 }
 
 function handleCreateWorktree(worktree: string, close: () => void) {
@@ -311,108 +326,107 @@ function handleSandboxDelete(directory: string, close?: () => void) {
   close?.();
 }
 
-function handleSessionDelete(id: string, close?: () => void) {
+function handleSessionDelete(sessionId: string, close?: () => void) {
   if (typeof window !== 'undefined') {
-    const confirmed = window.confirm(`Delete session?`);
+    const confirmed = window.confirm('Delete session?');
     if (!confirmed) return;
   }
-  emit('delete-session', id);
+  emit('delete-session', sessionId);
   close?.();
 }
 
-async function copyText(text: string) {
-  if (!text) return;
-  if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return;
-  try {
-    await navigator.clipboard.writeText(text);
-    showCopyToast();
-  } catch {
-    // ignore
-  }
+function handleOpenDirectory(close: () => void) {
+  emit('open-directory');
+  close();
 }
-
-function showCopyToast() {
-  copyToastVisible.value = true;
-  if (copyToastTimer) clearTimeout(copyToastTimer);
-  copyToastTimer = setTimeout(() => {
-    copyToastVisible.value = false;
-    copyToastTimer = null;
-  }, 1400);
-}
-
-onBeforeUnmount(() => {
-  if (copyToastTimer) {
-    clearTimeout(copyToastTimer);
-    copyToastTimer = null;
-  }
-});
 </script>
 
 <style scoped>
 .top-panel {
   position: relative;
+  width: 100%;
+  min-width: 0;
+  /* Full-width background band that breaks out of parent padding */
+  margin: -12px -12px 0;
+  padding: 8px 12px;
+  width: calc(100% + 24px);
   background: rgba(15, 23, 42, 0.92);
-  color: #e2e8f0;
-  border: 1px solid #334155;
-  border-radius: 12px;
-  padding: 10px;
-  box-shadow: 0 12px 32px rgba(2, 6, 23, 0.45);
-  z-index: 20;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  border-bottom: 1px solid #334155;
 }
 
 .top-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
 }
 
-.tree-dropdown-container {
+.top-left {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: #e2e8f0;
+}
+
+.top-center {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
+  justify-content: center;
   align-items: center;
   gap: 8px;
-  flex: 1;
-  min-width: 0;
 }
 
-.tree-dropdown {
-  flex: 1;
-  min-width: 0;
+.top-right {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.tree-dropdown-root {
+  flex: 0 1 680px;
+  width: min(680px, 70vw);
+  min-width: 260px;
 }
 
 .tree-menu {
   display: flex;
   flex-direction: column;
-  max-height: 80vh; /* Allow it to be tall */
-  width: 500px;     /* Wide enough for tree structure */
-  background: #0f172a;
+  background: transparent;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .tree-search {
-  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 8px;
   border-bottom: 1px solid #334155;
-  position: sticky;
-  top: 0;
-  background: #0f172a;
-  z-index: 10;
+  background: rgba(15, 23, 42, 0.9);
 }
 
 .search-icon {
-  color: #64748b;
   width: 14px;
   height: 14px;
+  color: #64748b;
 }
 
 .search-input {
   flex: 1;
-  background: transparent;
-  border: none;
+  min-width: 0;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: rgba(30, 41, 59, 0.55);
   color: #e2e8f0;
-  font-size: 13px;
+  font-size: 12px;
+  padding: 6px 8px;
   outline: none;
+}
+
+.search-input:focus {
+  border-color: #60a5fa;
+  background: rgba(30, 64, 175, 0.15);
 }
 
 .search-input::placeholder {
@@ -420,202 +434,246 @@ onBeforeUnmount(() => {
 }
 
 .clear-search {
-  background: none;
   border: none;
+  background: transparent;
   color: #64748b;
   cursor: pointer;
-  padding: 2px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-}
-
-.clear-search:hover {
-  color: #e2e8f0;
 }
 
 .tree-content {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 4px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  min-height: 0;
+  padding: 6px 0;
+}
+
+.tree-worktree + .tree-worktree {
+  border-top: 1px solid #334155;
 }
 
 .tree-empty {
-  padding: 16px;
+  padding: 14px;
   text-align: center;
-  color: #64748b;
-  font-size: 13px;
+  color: #94a3b8;
+  font-size: 12px;
 }
 
-.tree-group {
-  display: flex;
-  flex-direction: column;
-}
-
-.group-header {
+.tree-worktree-header,
+.tree-sandbox-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 8px;
-  background: #1e293b;
-  border-bottom: 1px solid #334155;
-  user-select: none;
+  gap: 8px;
+  min-width: 0;
 }
 
-.worktree-header {
-  background: #1e293b;
-  color: #e2e8f0;
-  font-weight: 600;
-  font-size: 12px;
-  padding: 6px 12px;
-}
-
-.sandbox-header {
-  background: #0f172a;
-  color: #94a3b8;
-  font-size: 12px;
-  padding: 4px 12px 4px 28px; /* Indent */
-  border-bottom: none;
-}
-
-.header-main {
+.tree-header-main {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex: 1;
+  gap: 4px;
   min-width: 0;
-  overflow: hidden;
+  flex: 1 1 auto;
 }
 
-.group-icon {
+.tree-header-icon {
   flex: 0 0 auto;
   width: 14px;
   height: 14px;
-  opacity: 0.7;
+  color: #64748b;
 }
 
-.group-label {
-  white-space: nowrap;
+.tree-worktree-header {
+  padding: 6px 8px;
+}
+
+.tree-sandbox-header {
+  padding: 5px 8px 5px 24px;
+  border-top: 1px solid rgba(51, 65, 85, 0.45);
+}
+
+.tree-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  align-items: flex-start;
+}
+
+.tree-label-name {
+  font-size: 12px;
+  color: #e2e8f0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.branch-badge {
+.tree-label-type {
+  font-size: 10px;
+  color: #64748b;
+}
+
+.tree-actions {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  background: #334155;
-  color: #94a3b8;
-  border-radius: 4px;
-  padding: 1px 4px;
+  gap: 6px;
+}
+
+.tree-action-button.fork {
+  color: #93c5fd;
+}
+
+.tree-action-button {
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: #111a2c;
+  color: #cbd5e1;
   font-size: 10px;
-  margin-left: 8px;
-}
-
-.branch-icon {
-  width: 10px;
-  height: 10px;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  opacity: 0; /* Show on hover */
-  transition: opacity 0.1s;
-}
-
-.group-header:hover .header-actions {
-  opacity: 1;
-}
-
-.action-button {
-  background: transparent;
-  border: none;
-  color: #94a3b8;
+  line-height: 1;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   cursor: pointer;
-  padding: 2px;
-  border-radius: 4px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
 }
 
-.action-button:hover {
-  background: #334155;
+.tree-action-button:hover {
+  background: #1d2a45;
+}
+
+.tree-action-button.danger {
+  color: #fca5a5;
+}
+
+/* Session rows: wrapper provides indentation via :deep() since DropdownItem has inheritAttrs:false */
+.tree-session-row :deep(.ui-dropdown-item) {
+  padding-left: 40px;
+  border-radius: 0;
   color: #e2e8f0;
 }
 
-.delete-button:hover {
-  background: #7f1d1d;
-  color: #fecaca;
+.tree-session-row :deep(.ui-dropdown-item:hover),
+.tree-session-row :deep(.ui-dropdown-item[aria-selected='true']) {
+  background: rgba(30, 41, 59, 0.8);
 }
 
-.group-children {
+.tree-session-row :deep(.ui-dropdown-item.is-active) {
+  background: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.45);
+}
+
+.tree-session-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  flex: 1 1 auto;
+}
+
+.session-status-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+}
+
+.session-title {
+  color: #e2e8f0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.session-del {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.tree-footer {
+  flex: 0 0 auto;
+  border-top: 1px solid #334155;
+  padding: 8px;
+  background: #0b1320;
+}
+
+.tree-footer-button {
+  width: 100%;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #111a2c;
+  color: #e2e8f0;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tree-footer-button:hover {
+  background: #1d2a45;
+}
+
+.control-button {
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #0b1320;
+  color: #e2e8f0;
+  padding: 6px 12px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.tree-dropdown-root :deep(.ui-dropdown-button) {
+  background: #0b1320;
+  border-color: #334155;
+  color: #e2e8f0;
+  box-shadow: none;
+}
+
+.tree-dropdown-root :deep(.ui-dropdown-menu) {
+  background: #0b1320;
+  border: 1px solid #334155;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-/* Session items */
-.session-item {
-  padding-left: 44px !important; /* Indent for session */
-  font-size: 13px;
-  display: flex;
+.selected-label {
+  min-width: 0;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
 }
 
-.session-item.is-active {
-  background: #1e40af !important;
-  color: #fff;
-}
-
-.session-status-icon {
-  margin-right: 8px;
-  font-size: 12px;
-}
-
-.session-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  opacity: 0;
-}
-
-.session-item:hover .session-actions {
-  opacity: 1;
-}
-
-.copy-toast {
-  position: fixed;
-  top: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 120;
-  background: #14532d;
-  color: #dcfce7;
-  border: 1px solid #166534;
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 11px;
-}
-
-.control-button {
-  background: #1e293b;
-  color: #e2e8f0;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 12px;
-  cursor: pointer;
+.selected-branch-badge {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  padding: 2px 6px;
+  color: #cbd5e1;
+  background: #111a2c;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.selected-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .control-button:disabled {
-  opacity: 0.5;
+  opacity: 0.6;
   cursor: not-allowed;
 }
 </style>

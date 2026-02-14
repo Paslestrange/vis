@@ -414,29 +414,6 @@ function onResizeEnd(e: PointerEvent) {
   height: 100%;
   overflow: auto;
   padding: 2px 4px;
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
-}
-
-.floating-window-body::-webkit-scrollbar {
-  width: 6px;
-}
-
-.floating-window-body::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 3px;
-}
-
-.floating-window-body::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.floating-window-body:hover {
-  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
-}
-
-.floating-window-body:hover::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
 }
 
 .floating-window-body.scroll-none {

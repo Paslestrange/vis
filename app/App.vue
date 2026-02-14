@@ -4458,20 +4458,11 @@ const toolRendererHelpers = {
 const ge = useGlobalEvents(OPENCODE_BASE_URL);
 
 const sessionScope = ge.session(selectedSessionId, sessionParentRecord);
+const mainSessionScope = ge.mainSession(selectedSessionId);
 const msg = useMessages(sessionScope);
 reasoning.bindScope(sessionScope);
 
 watch(selectedSessionId, reloadSelectedSessionState, { immediate: true });
-
-function normalizeSseEventType(type: string) {
-  return type.toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function isSessionDeleteEvent(type?: string) {
-  if (!type) return false;
-  const normalized = normalizeSseEventType(type);
-  return normalized === 'sessiondeleted' || normalized === 'sessiondelete';
-}
 
 function matchesSelectedProject(sessionInfo: SessionInfo) {
   if (!sessionInfo.directory) return true;
@@ -5462,39 +5453,6 @@ async function openFileViewer(path: string) {
       },
     });
   }
-}
-
-function parseTodoUpdated(payload: unknown, eventType: string) {
-  if (!payload || typeof payload !== 'object') return null;
-  const record = payload as Record<string, unknown>;
-  const nestedPayload =
-    record.payload && typeof record.payload === 'object'
-      ? (record.payload as Record<string, unknown>)
-      : undefined;
-  const properties =
-    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
-      ? (nestedPayload.properties as Record<string, unknown>)
-      : undefined) ??
-    (record.properties && typeof record.properties === 'object'
-      ? (record.properties as Record<string, unknown>)
-      : undefined);
-  const type =
-    (record.type as string | undefined) ??
-    (record.event as string | undefined) ??
-    (nestedPayload?.type as string | undefined) ??
-    eventType;
-  if (!type) return null;
-  const normalized = normalizeSseEventType(type);
-  if (normalized !== 'todoupdated') return null;
-  const sessionID =
-    (typeof properties?.sessionID === 'string' && properties.sessionID) ||
-    (typeof properties?.sessionId === 'string' && properties.sessionId) ||
-    parseSessionId(payload);
-  if (!sessionID) return null;
-  return {
-    sessionID,
-    todos: normalizeTodoItems(properties?.todos),
-  };
 }
 
 function guessLanguage(path?: string, eventType?: string) {
@@ -6523,7 +6481,7 @@ function parseMessage(payload: unknown, eventType: string) {
     role: resolvedRole,
     partId,
     partType,
-    isPartUpdatedEvent: normalizeSseEventType(eventType) === 'messagepartupdated',
+    isPartUpdatedEvent: eventType === 'message.part.updated',
     userMeta,
     messageTime,
   };
@@ -6691,68 +6649,18 @@ function formatRetryTime(timestamp: number): string {
   return `${absolute} (${relative})`;
 }
 
-function parseSessionStatus(payload: unknown, eventType: string) {
-  if (!payload || typeof payload !== 'object') return null;
-  const record = payload as Record<string, unknown>;
-  const nestedPayload =
-    record.payload && typeof record.payload === 'object'
-      ? (record.payload as Record<string, unknown>)
-      : undefined;
-  const properties =
-    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
-      ? (nestedPayload.properties as Record<string, unknown>)
-      : undefined) ??
-    (record.properties && typeof record.properties === 'object'
-      ? (record.properties as Record<string, unknown>)
-      : undefined);
-
-  const type =
-    (record.type as string | undefined) ??
-    (record.event as string | undefined) ??
-    (nestedPayload?.type as string | undefined) ??
-    eventType;
-  if (!type) return null;
-
-  const normalized = normalizeSseEventType(type);
-  if (normalized === 'sessionidle') {
-    return { status: 'idle' as const };
-  }
-  if (!type.toLowerCase().includes('session.status')) return null;
-
-  const status =
-    (properties?.status as Record<string, unknown> | undefined) ??
-    (record.status as Record<string, unknown> | undefined);
-  const statusType = typeof status?.type === 'string' ? status.type : undefined;
-
-  if (statusType === 'retry') {
-    const message = typeof status?.message === 'string' ? status.message : 'Retrying...';
-    const next = typeof status?.next === 'number' ? status.next : Date.now() + 60000;
-    const attempt = typeof status?.attempt === 'number' ? status.attempt : 1;
-    return { status: statusType, message, next, attempt };
-  }
-
-  return statusType ? { status: statusType } : null;
-}
-
-function applySessionStatusEvent(payload: unknown, eventType: string) {
-  const sessionStatus = parseSessionStatus(payload, eventType);
-  if (!sessionStatus) return;
-
-  const sessionId = parseSessionId(payload);
-  if (!sessionId) return;
-
-  const projectId =
-    resolveProjectIdForSession(sessionId) ||
-    selectedProjectId.value ||
-    resolveProjectIdForDirectory(parseEventDirectory(payload) || undefined);
+function applySessionStatusEvent(
+  sessionId: string,
+  status: { type: 'busy' | 'idle' | 'retry'; message?: string; next?: number; attempt?: number },
+) {
+  const projectId = resolveProjectIdForSession(sessionId) || selectedProjectId.value;
   if (!projectId) return;
 
   const isAllowedSession = allowedSessionIds.value.has(sessionId);
-
   const isSelectedSession = sessionId === selectedSessionId.value;
 
-  if (sessionStatus.status === 'busy' || sessionStatus.status === 'idle') {
-    const nextStatus: 'busy' | 'idle' = sessionStatus.status;
+  if (status.type === 'busy' || status.type === 'idle') {
+    const nextStatus: 'busy' | 'idle' = status.type;
     setSessionStatus(sessionId, nextStatus, projectId);
     if (isAllowedSession) {
       if (isSelectedSession) retryStatus.value = null;
@@ -6767,7 +6675,7 @@ function applySessionStatusEvent(payload: unknown, eventType: string) {
     return;
   }
 
-  if (sessionStatus.status !== 'retry') return;
+  if (status.type !== 'retry') return;
 
   setSessionStatus(sessionId, 'retry', projectId);
   const session = sessionGraphStore.getSession(sessionId, projectId);
@@ -6775,252 +6683,26 @@ function applySessionStatusEvent(payload: unknown, eventType: string) {
   if (!isSelectedSession || !isAllowedSession) return;
 
   updateReasoningExpiry(sessionId, 'busy');
-  if (sessionStatus.message && typeof sessionStatus.next === 'number') {
+  if (status.message && typeof status.next === 'number') {
     retryStatus.value = {
-      message: sessionStatus.message,
-      next: sessionStatus.next,
-      attempt: sessionStatus.attempt || 1,
+      message: status.message,
+      next: status.next,
+      attempt: status.attempt || 1,
     };
   }
 }
 
-function parsePtyEvent(payload: unknown, eventType: string) {
-  if (!payload || typeof payload !== 'object') return null;
-  const record = payload as Record<string, unknown>;
-  const nestedPayload =
-    record.payload && typeof record.payload === 'object'
-      ? (record.payload as Record<string, unknown>)
-      : undefined;
-  const properties =
-    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
-      ? (nestedPayload.properties as Record<string, unknown>)
-      : undefined) ??
-    (record.properties && typeof record.properties === 'object'
-      ? (record.properties as Record<string, unknown>)
-      : undefined);
-  const type =
-    (record.type as string | undefined) ??
-    (record.event as string | undefined) ??
-    (nestedPayload?.type as string | undefined) ??
-    eventType;
-  if (!type) return null;
-  const normalized = normalizeSseEventType(type);
-  if (!normalized.startsWith('pty')) return null;
-  const infoRaw =
-    properties?.info && typeof properties.info === 'object' ? properties.info : undefined;
-  const info = parsePtyInfo(infoRaw);
-  const id =
-    (properties?.id as string | undefined) ??
-    (info?.id as string | undefined) ??
-    (record.id as string | undefined);
-  const exitCode =
-    typeof properties?.exitCode === 'number'
-      ? properties.exitCode
-      : typeof (properties as Record<string, unknown>)?.exitCode === 'string'
-        ? Number(properties?.exitCode)
-        : undefined;
-  return { type, normalized, info, id, exitCode };
-}
-
-function parsePermissionAsked(payload: unknown, eventType: string) {
-  if (!payload || typeof payload !== 'object') return null;
-  const record = payload as Record<string, unknown>;
-  const nestedPayload =
-    record.payload && typeof record.payload === 'object'
-      ? (record.payload as Record<string, unknown>)
-      : undefined;
-  const properties =
-    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
-      ? (nestedPayload.properties as Record<string, unknown>)
-      : undefined) ??
-    (record.properties && typeof record.properties === 'object'
-      ? (record.properties as Record<string, unknown>)
-      : undefined);
-  const data =
-    (record.data && typeof record.data === 'object'
-      ? (record.data as Record<string, unknown>)
-      : undefined) ??
-    (record.result && typeof record.result === 'object'
-      ? (record.result as Record<string, unknown>)
-      : undefined);
-  const type =
-    (record.type as string | undefined) ??
-    (record.event as string | undefined) ??
-    (nestedPayload?.type as string | undefined) ??
-    eventType;
-  if (!type) return null;
-  const normalized = normalizeSseEventType(type);
-  if (
-    normalized !== 'permissionasked' &&
-    normalized !== 'permissionupdated' &&
-    normalized !== 'permissionupdate'
-  )
-    return null;
-  const request = properties ?? data;
-  return parsePermissionRequest(request, parseSessionId(payload));
-}
-
-function parsePermissionReplied(payload: unknown, eventType: string) {
-  if (!payload || typeof payload !== 'object') return null;
-  const record = payload as Record<string, unknown>;
-  const nestedPayload =
-    record.payload && typeof record.payload === 'object'
-      ? (record.payload as Record<string, unknown>)
-      : undefined;
-  const properties =
-    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
-      ? (nestedPayload.properties as Record<string, unknown>)
-      : undefined) ??
-    (record.properties && typeof record.properties === 'object'
-      ? (record.properties as Record<string, unknown>)
-      : undefined);
-  const type =
-    (record.type as string | undefined) ??
-    (record.event as string | undefined) ??
-    (nestedPayload?.type as string | undefined) ??
-    eventType;
-  if (!type) return null;
-  const normalized = normalizeSseEventType(type);
-  if (normalized !== 'permissionreplied') return null;
-  const requestID =
-    (properties?.permissionID as string | undefined) ??
-    (properties?.permissionId as string | undefined) ??
-    (properties?.requestID as string | undefined) ??
-    (properties?.id as string | undefined) ??
-    (record.permissionID as string | undefined) ??
-    (record.id as string | undefined);
-  const replyCandidate =
-    (properties?.response as string | undefined) ?? (properties?.reply as string | undefined);
-  const reply =
-    replyCandidate === 'once' || replyCandidate === 'always' || replyCandidate === 'reject'
-      ? (replyCandidate as PermissionReply)
-      : undefined;
-  const sessionID =
-    (properties?.sessionID as string | undefined) ??
-    (properties?.sessionId as string | undefined) ??
-    (properties?.session_id as string | undefined) ??
-    parseSessionId(payload);
-  if (!requestID) return null;
-  return { requestID, reply, sessionID };
-}
-
-function parseQuestionAsked(payload: unknown, eventType: string) {
-  if (!payload || typeof payload !== 'object') return null;
-  const record = payload as Record<string, unknown>;
-  const nestedPayload =
-    record.payload && typeof record.payload === 'object'
-      ? (record.payload as Record<string, unknown>)
-      : undefined;
-  const properties =
-    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
-      ? (nestedPayload.properties as Record<string, unknown>)
-      : undefined) ??
-    (record.properties && typeof record.properties === 'object'
-      ? (record.properties as Record<string, unknown>)
-      : undefined);
-  const data =
-    (record.data && typeof record.data === 'object'
-      ? (record.data as Record<string, unknown>)
-      : undefined) ??
-    (record.result && typeof record.result === 'object'
-      ? (record.result as Record<string, unknown>)
-      : undefined);
-  const type =
-    (record.type as string | undefined) ??
-    (record.event as string | undefined) ??
-    (nestedPayload?.type as string | undefined) ??
-    eventType;
-  if (!type) return null;
-  const normalized = normalizeSseEventType(type);
-  if (
-    normalized !== 'questionasked' &&
-    normalized !== 'questionupdated' &&
-    normalized !== 'questionupdate'
-  )
-    return null;
-  const request = properties ?? data;
-  return parseQuestionRequest(request, parseSessionId(payload));
-}
-
-function parseQuestionReplied(payload: unknown, eventType: string) {
-  if (!payload || typeof payload !== 'object') return null;
-  const record = payload as Record<string, unknown>;
-  const nestedPayload =
-    record.payload && typeof record.payload === 'object'
-      ? (record.payload as Record<string, unknown>)
-      : undefined;
-  const properties =
-    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
-      ? (nestedPayload.properties as Record<string, unknown>)
-      : undefined) ??
-    (record.properties && typeof record.properties === 'object'
-      ? (record.properties as Record<string, unknown>)
-      : undefined);
-  const type =
-    (record.type as string | undefined) ??
-    (record.event as string | undefined) ??
-    (nestedPayload?.type as string | undefined) ??
-    eventType;
-  if (!type) return null;
-  const normalized = normalizeSseEventType(type);
-  if (normalized !== 'questionreplied') return null;
-  const requestID =
-    (properties?.questionID as string | undefined) ??
-    (properties?.questionId as string | undefined) ??
-    (properties?.requestID as string | undefined) ??
-    (properties?.id as string | undefined) ??
-    (record.questionID as string | undefined) ??
-    (record.id as string | undefined);
-  if (!requestID) return null;
-  return { requestID };
-}
-
-function parseQuestionRejected(payload: unknown, eventType: string) {
-  if (!payload || typeof payload !== 'object') return null;
-  const record = payload as Record<string, unknown>;
-  const nestedPayload =
-    record.payload && typeof record.payload === 'object'
-      ? (record.payload as Record<string, unknown>)
-      : undefined;
-  const properties =
-    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
-      ? (nestedPayload.properties as Record<string, unknown>)
-      : undefined) ??
-    (record.properties && typeof record.properties === 'object'
-      ? (record.properties as Record<string, unknown>)
-      : undefined);
-  const type =
-    (record.type as string | undefined) ??
-    (record.event as string | undefined) ??
-    (nestedPayload?.type as string | undefined) ??
-    eventType;
-  if (!type) return null;
-  const normalized = normalizeSseEventType(type);
-  if (normalized !== 'questionrejected') return null;
-  const requestID =
-    (properties?.questionID as string | undefined) ??
-    (properties?.questionId as string | undefined) ??
-    (properties?.requestID as string | undefined) ??
-    (properties?.id as string | undefined) ??
-    (record.questionID as string | undefined) ??
-    (record.id as string | undefined);
-  if (!requestID) return null;
-  return { requestID };
-}
-
 function handlePtyEvent(event: {
-  type: string;
-  normalized: string;
+  type: 'pty.created' | 'pty.updated' | 'pty.exited';
   info: PtyInfo | null;
   id?: string;
-  exitCode?: number;
 }) {
   const sessionId = selectedSessionId.value;
   if (!sessionId) return;
   const tracked = getShellPtyIds(sessionId);
   const ptyId = event.id ?? event.info?.id;
   if (!ptyId || !tracked.has(ptyId)) return;
-  if (event.normalized === 'ptyexited' || event.normalized === 'ptydeleted') {
+  if (event.type === 'pty.exited') {
     removeShellWindow(ptyId);
     return;
   }
@@ -7349,128 +7031,6 @@ async function handleQuestionReject(requestId: string) {
   }
 }
 
-function parseSessionInfo(payload: unknown, eventType: string) {
-  if (!payload || typeof payload !== 'object') return null;
-  const record = payload as Record<string, unknown>;
-  const nestedPayload =
-    record.payload && typeof record.payload === 'object'
-      ? (record.payload as Record<string, unknown>)
-      : undefined;
-  const properties =
-    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
-      ? (nestedPayload.properties as Record<string, unknown>)
-      : undefined) ??
-    (record.properties && typeof record.properties === 'object'
-      ? (record.properties as Record<string, unknown>)
-      : undefined);
-  const type =
-    (record.type as string | undefined) ??
-    (record.event as string | undefined) ??
-    (nestedPayload?.type as string | undefined) ??
-    eventType;
-  if (typeof type !== 'string' || !type.startsWith('session.')) return null;
-  const info =
-    properties?.info && typeof properties.info === 'object'
-      ? (properties.info as Record<string, unknown>)
-      : undefined;
-  if (!info || typeof info.id !== 'string') return null;
-  const sessionInfo: SessionInfo = { id: info.id as string };
-  if (typeof info.projectID === 'string') sessionInfo.projectID = info.projectID as string;
-  if (typeof info.parentID === 'string') sessionInfo.parentID = info.parentID as string;
-  if (typeof info.title === 'string') sessionInfo.title = info.title as string;
-  if (typeof info.slug === 'string') sessionInfo.slug = info.slug as string;
-  if (typeof info.directory === 'string') sessionInfo.directory = info.directory as string;
-  return sessionInfo;
-}
-
-function parseWorktreeReady(payload: unknown, eventType: string) {
-  if (!payload || typeof payload !== 'object') return null;
-  const record = payload as Record<string, unknown>;
-  const nestedPayload =
-    record.payload && typeof record.payload === 'object'
-      ? (record.payload as Record<string, unknown>)
-      : undefined;
-  const properties =
-    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
-      ? (nestedPayload.properties as Record<string, unknown>)
-      : undefined) ??
-    (record.properties && typeof record.properties === 'object'
-      ? (record.properties as Record<string, unknown>)
-      : undefined);
-  const type =
-    (record.type as string | undefined) ??
-    (record.event as string | undefined) ??
-    (nestedPayload?.type as string | undefined) ??
-    eventType;
-  if (!type) return null;
-  const normalized = normalizeSseEventType(type);
-  if (normalized !== 'worktreeready') return null;
-  const directory =
-    (typeof record.directory === 'string' && record.directory) ||
-    (typeof nestedPayload?.directory === 'string' && nestedPayload.directory) ||
-    (typeof properties?.directory === 'string' && properties.directory)
-      ? String(record.directory ?? nestedPayload?.directory ?? properties?.directory)
-      : undefined;
-  if (!directory) return null;
-  const branch = typeof properties?.branch === 'string' ? properties.branch : undefined;
-  return { directory, branch };
-}
-
-function parseProjectUpdated(payload: unknown, eventType: string) {
-  if (!payload || typeof payload !== 'object') return null;
-  const record = payload as Record<string, unknown>;
-  const nestedPayload =
-    record.payload && typeof record.payload === 'object'
-      ? (record.payload as Record<string, unknown>)
-      : undefined;
-  const properties =
-    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
-      ? (nestedPayload.properties as Record<string, unknown>)
-      : undefined) ??
-    (record.properties && typeof record.properties === 'object'
-      ? (record.properties as Record<string, unknown>)
-      : undefined);
-  const type =
-    (record.type as string | undefined) ??
-    (record.event as string | undefined) ??
-    (nestedPayload?.type as string | undefined) ??
-    eventType;
-  if (!type) return null;
-  const normalized = normalizeSseEventType(type);
-  if (normalized !== 'projectupdated' && normalized !== 'projectupdate') return null;
-  const id =
-    (typeof properties?.id === 'string' && properties.id) ||
-    (typeof record.id === 'string' && record.id) ||
-    undefined;
-  if (!id) return null;
-  const worktree = typeof properties?.worktree === 'string' ? properties.worktree : undefined;
-  const sandboxes = Array.isArray(properties?.sandboxes)
-    ? properties.sandboxes.filter((entry) => typeof entry === 'string')
-    : undefined;
-  return { id, worktree, sandboxes } as ProjectInfo;
-}
-
-function parseEventDirectory(payload: unknown) {
-  if (!payload || typeof payload !== 'object') return '';
-  const record = payload as Record<string, unknown>;
-  const nestedPayload =
-    record.payload && typeof record.payload === 'object'
-      ? (record.payload as Record<string, unknown>)
-      : undefined;
-  const properties =
-    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
-      ? (nestedPayload.properties as Record<string, unknown>)
-      : undefined) ??
-    (record.properties && typeof record.properties === 'object'
-      ? (record.properties as Record<string, unknown>)
-      : undefined);
-  const value =
-    (typeof record.directory === 'string' ? record.directory : undefined) ??
-    (typeof nestedPayload?.directory === 'string' ? nestedPayload.directory : undefined) ??
-    (typeof properties?.directory === 'string' ? properties.directory : undefined);
-  return value?.trim() ?? '';
-}
-
 async function reconnectAndReconcile() {
   if (reconnectInFlight) return;
   reconnectInFlight = true;
@@ -7588,29 +7148,29 @@ onMounted(() => {
     }),
   );
   globalEventUnsubscribers.push(
-    ge.on('permission.asked', (packet) => {
+    sessionScope.on('permission.asked', (packet) => {
       const request = packet as PermissionRequest;
-      if (isPermissionSessionAllowed(request)) upsertPermissionEntry(request);
+      upsertPermissionEntry(request);
     }),
   );
   globalEventUnsubscribers.push(
-    ge.on('permission.replied', ({ requestID }) => {
+    sessionScope.on('permission.replied', ({ requestID }) => {
       removePermissionEntry(requestID);
     }),
   );
   globalEventUnsubscribers.push(
-    ge.on('question.asked', (packet) => {
+    sessionScope.on('question.asked', (packet) => {
       const request = packet as QuestionRequest;
-      if (isQuestionSessionAllowed(request)) upsertQuestionEntry(request);
+      upsertQuestionEntry(request);
     }),
   );
   globalEventUnsubscribers.push(
-    ge.on('question.replied', ({ requestID }) => {
+    sessionScope.on('question.replied', ({ requestID }) => {
       removeQuestionEntry(requestID);
     }),
   );
   globalEventUnsubscribers.push(
-    ge.on('question.rejected', ({ requestID }) => {
+    sessionScope.on('question.rejected', ({ requestID }) => {
       removeQuestionEntry(requestID);
     }),
   );
@@ -7675,18 +7235,12 @@ onMounted(() => {
     }),
   );
   globalEventUnsubscribers.push(
-    ge.on('session.diff', ({ sessionID, diff }) => {
-      const selectedId = selectedSessionId.value;
-      if (!selectedId) {
-        updateSessionDiffState([]);
-        return;
-      }
+    mainSessionScope.on('session.diff', ({ diff }) => {
       const directory = activeDirectory.value.trim();
       if (!directory) {
         updateSessionDiffState([]);
         return;
       }
-      if (sessionID && sessionID !== selectedId) return;
       if (Array.isArray(diff)) {
         const entries = normalizeSessionDiffEntries(diff);
         const hadAdded = entries.some((entry) => entry.status === 'added');
@@ -7700,12 +7254,11 @@ onMounted(() => {
   );
   globalEventUnsubscribers.push(
     ge.on('session.status', ({ sessionID, status }) => {
-      applySessionStatusEvent({ sessionID, status }, 'session.status');
+      applySessionStatusEvent(sessionID, status);
     }),
   );
   globalEventUnsubscribers.push(
-    ge.on('todo.updated', ({ sessionID, todos }) => {
-      if (!allowedSessionIds.value.has(sessionID)) return;
+    sessionScope.on('todo.updated', ({ sessionID, todos }) => {
       todosBySessionId.value = {
         ...todosBySessionId.value,
         [sessionID]: todos,
@@ -7719,21 +7272,21 @@ onMounted(() => {
   );
   globalEventUnsubscribers.push(
     ge.on('pty.created', ({ info }) => {
-      handlePtyEvent({ type: 'pty.created', normalized: 'ptycreated', info: info as PtyInfo });
+      handlePtyEvent({ type: 'pty.created', info: info as PtyInfo });
     }),
   );
   globalEventUnsubscribers.push(
     ge.on('pty.updated', ({ info }) => {
-      handlePtyEvent({ type: 'pty.updated', normalized: 'ptyupdated', info: info as PtyInfo });
+      handlePtyEvent({ type: 'pty.updated', info: info as PtyInfo });
     }),
   );
   globalEventUnsubscribers.push(
-    ge.on('pty.exited', ({ id, exitCode }) => {
-      handlePtyEvent({ type: 'pty.exited', normalized: 'ptyexited', info: null, id, exitCode });
+    ge.on('pty.exited', ({ id }) => {
+      handlePtyEvent({ type: 'pty.exited', info: null, id });
     }),
   );
   globalEventUnsubscribers.push(
-    ge.on('message.part.updated', ({ part }) => {
+    sessionScope.on('message.part.updated', ({ part }) => {
       if (part.type !== 'tool') return;
       const payload = {
         type: 'message.part.updated',
@@ -7815,6 +7368,8 @@ onBeforeUnmount(() => {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+  mainSessionScope.dispose();
+  sessionScope.dispose();
   ge.disconnect();
   disposeShellWindows({ preserve: true });
 });

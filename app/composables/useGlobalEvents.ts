@@ -11,6 +11,8 @@ export type SessionScope = {
   dispose(): void;
 };
 
+export type MainSessionScope = SessionScope;
+
 const KNOWN_EVENT_TYPES = new Set<EventKey>([
   'message.updated',
   'message.removed',
@@ -263,5 +265,36 @@ export function useGlobalEvents(baseUrl: string) {
     return { on: scopedOn, dispose };
   }
 
-  return { on, connect, disconnect, session };
+  function mainSession(selectedSessionId: Ref<string>): MainSessionScope {
+    const disposers = new Set<() => void>();
+
+    function scopedOn<K extends EventKey>(
+      event: K,
+      listener: (payload: GlobalEventMap[K]) => void,
+    ): () => void;
+    function scopedOn(event: string, listener: (payload: any) => void): () => void;
+    function scopedOn(event: string, listener: (payload: any) => void): () => void {
+      if (!isKnownEventType(event)) return () => {};
+      const off = on(event, (payload) => {
+        const sessionId = extractSessionId(payload);
+        if (!sessionId || sessionId === selectedSessionId.value) {
+          listener(payload);
+        }
+      });
+      disposers.add(off);
+      return () => {
+        off();
+        disposers.delete(off);
+      };
+    }
+
+    function dispose() {
+      for (const off of disposers) off();
+      disposers.clear();
+    }
+
+    return { on: scopedOn, dispose };
+  }
+
+  return { on, connect, disconnect, session, mainSession };
 }

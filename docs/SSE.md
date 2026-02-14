@@ -19,17 +19,25 @@ Common fields:
 
 Below lists each `payload.type` and its `properties` fields.
 
+- server.connected
+  - (empty object)
+- server.heartbeat
+  - (empty object)
 - server.instance.disposed
   - directory: string
+- global.disposed
+  - (empty object)
 - installation.updated
   - version: string
 - installation.update-available
   - version: string
+- ide.installed
+  - ide: string
 - lsp.client.diagnostics
   - serverID: string
   - path: string
 - lsp.updated
-  - (arbitrary fields)
+  - (empty object)
 - message.updated
   - info: Message
 - message.removed
@@ -42,40 +50,45 @@ Below lists each `payload.type` and its `properties` fields.
   - sessionID: string
   - messageID: string
   - partID: string
-- permission.updated
+- permission.asked
   - id: string
-  - type: string
-  - pattern?: string | string[]
   - sessionID: string
-  - messageID: string
-  - callID?: string
-  - title: string
+  - permission: string
+  - patterns: string[]
   - metadata: object
-  - time.created: number
+  - always: string[]
+  - tool?.messageID: string
+  - tool?.callID: string
 - permission.replied
   - sessionID: string
-  - permissionID: string
-  - response: string
+  - requestID: string
+  - reply: once | always | reject
+- permission.updated (deprecated)
+  - legacy event. Do not use in new clients.
+- question.asked
+  - id: string
+  - sessionID: string
+  - questions: QuestionInfo[]
+  - tool?.messageID: string
+  - tool?.callID: string
+- question.replied
+  - sessionID: string
+  - requestID: string
+  - answers: string[][]
+- question.rejected
+  - sessionID: string
+  - requestID: string
 - session.status
   - sessionID: string
   - status.type: idle | retry | busy
   - status.attempt?: number
   - status.message?: string
   - status.next?: number
-- session.idle
+- session.idle (deprecated)
   - sessionID: string
+  - legacy compatibility event. Use `session.status` with `status.type = idle`.
 - session.compacted
   - sessionID: string
-- file.edited
-  - file: string
-- todo.updated
-  - sessionID: string
-  - todos: Todo[]
-- command.executed
-  - name: string
-  - sessionID: string
-  - arguments: string
-  - messageID: string
 - session.created
   - info: Session
 - session.updated
@@ -88,11 +101,33 @@ Below lists each `payload.type` and its `properties` fields.
 - session.error
   - sessionID?: string
   - error?: ProviderAuthError | UnknownError | MessageOutputLengthError | MessageAbortedError | ApiError
+- file.edited
+  - file: string
 - file.watcher.updated
   - file: string
   - event: add | change | unlink
+- todo.updated
+  - sessionID: string
+  - todos: Todo[]
+- command.executed
+  - name: string
+  - sessionID: string
+  - arguments: string
+  - messageID: string
+- project.updated
+  - ProjectInfo
+- worktree.ready
+  - name: string
+  - branch: string
+- worktree.failed
+  - message: string
 - vcs.branch.updated
   - branch?: string
+- mcp.tools.changed
+  - server: string
+- mcp.browser.open.failed
+  - mcpName: string
+  - url: string
 - tui.prompt.append
   - text: string
 - tui.command.execute
@@ -102,6 +137,8 @@ Below lists each `payload.type` and its `properties` fields.
   - message: string
   - variant: info | success | warning | error
   - duration?: number
+- tui.session.select
+  - sessionID: string
 - pty.created
   - info: Pty
 - pty.updated
@@ -111,8 +148,6 @@ Below lists each `payload.type` and its `properties` fields.
   - exitCode: number
 - pty.deleted
   - id: string
-- server.connected
-  - (arbitrary fields)
 
 ## Core Payload Shapes
 

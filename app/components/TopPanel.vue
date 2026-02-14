@@ -1,7 +1,10 @@
 <template>
   <div class="top-panel">
     <div class="top-row">
-      <div class="top-left">OpenCode Visualizer</div>
+      <div class="top-left flex items-baseline gap-2">
+        <div class="text-lg">Vis</div>
+        <div class="text-xs font-normal">OpenCode Visualizer</div>
+      </div>
       <div class="top-center">
         <Dropdown
           class="tree-dropdown-root"

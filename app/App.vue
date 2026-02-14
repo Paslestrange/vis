@@ -964,7 +964,7 @@ const commandOptions = computed(() => {
   if (!hasDebug) {
     list.push({
       name: 'debug',
-      description: 'Preview tool windows with synthetic debug events.',
+      description: 'Debug utilities. Use /debug help for subcommands.',
       source: 'local',
     });
   }
@@ -3944,85 +3944,148 @@ function findCommandByName(name: string) {
   return commands.value.find((command) => command.name.toLowerCase() === target) ?? null;
 }
 
-type DebugToolEvent = {
-  status: 'running' | 'completed' | 'error';
-  input?: Record<string, unknown>;
-  output?: unknown;
-  metadata?: Record<string, unknown>;
-  error?: unknown;
-  delayMs?: number;
-  toolName?: string;
-  callIdSuffix?: string;
+const DEBUG_SUBCOMMANDS: Record<string, string> = {
+  session: 'Show session graph tree',
 };
 
-function buildDebugToolEvents(_tool: string): DebugToolEvent[] | null {
-  return null;
-}
+function formatSessionGraphDump(): string {
+  const data = sessionGraphStore.dump();
+  const lines: string[] = [];
 
-function injectSyntheticEvent(payload: Record<string, unknown>) {
-  void payload;
+  lines.push(`Session Graph  (version ${data.version})`);
+  lines.push(`  nodes: ${data.nodeCount}  sessions(unique): ${data.sessionCount}`);
+  lines.push('');
+
+  // Index nodes by directory
+  const nodesByDir = new Map<string, typeof data.nodes>();
+  for (const node of data.nodes) {
+    const dir = node.directory || '';
+    const group = nodesByDir.get(dir) ?? [];
+    group.push(node);
+    nodesByDir.set(dir, group);
+  }
+
+  function fmtTime(ts?: number) {
+    if (!ts) return '-';
+    return new Date(ts).toLocaleString();
+  }
+
+  function fmtStatus(s: string) {
+    if (s === 'busy') return '[BUSY]';
+    if (s === 'retry') return '[RETRY]';
+    if (s === 'idle') return '[idle]';
+    return `[${s}]`;
+  }
+
+  function printSession(node: (typeof data.nodes)[0], childrenOf: Map<string, typeof data.nodes>, prefix: string, isLast: boolean) {
+    const connector = isLast ? '└── ' : '├── ';
+    const status = fmtStatus(node.status);
+    const retention = node.retention === 'ephemeral' ? ' (ephemeral)' : '';
+    const title = node.title ? `  "${node.title}"` : '';
+    const slug = node.slug ? `  slug=${node.slug}` : '';
+    lines.push(`${prefix}${connector}${node.sessionID}  ${status}${retention}${title}${slug}`);
+
+    const detail = `${prefix}${isLast ? '    ' : '│   '}`;
+    lines.push(`${detail}created: ${fmtTime(node.timeCreated)}  updated: ${fmtTime(node.timeUpdated)}`);
+
+    const children = childrenOf.get(node.sessionID) ?? [];
+    children.sort((a, b) => (b.timeUpdated ?? 0) - (a.timeUpdated ?? 0));
+    for (let i = 0; i < children.length; i++) {
+      printSession(children[i], childrenOf, `${prefix}${isLast ? '    ' : '│   '}`, i === children.length - 1);
+    }
+  }
+
+  // Walk tree: worktree -> sandbox -> sessions
+  const worktrees = Object.keys(data.tree).sort();
+  for (const worktree of worktrees) {
+    lines.push(`WORKTREE  ${worktree}`);
+    const sandboxes = data.tree[worktree];
+    const sandboxKeys = Object.keys(sandboxes).sort();
+
+    for (let si = 0; si < sandboxKeys.length; si++) {
+      const sandbox = sandboxKeys[si];
+      const info = sandboxes[sandbox];
+      const isLastSandbox = si === sandboxKeys.length - 1;
+      const sConnector = isLastSandbox ? '└── ' : '├── ';
+      const sPrefix = isLastSandbox ? '    ' : '│   ';
+
+      const meta: string[] = [];
+      if (info.projectID) meta.push(`project: ${info.projectID}`);
+      if (info.branch) meta.push(`branch: ${info.branch}`);
+      const metaStr = meta.length > 0 ? `  (${meta.join(', ')})` : '';
+      lines.push(`${sConnector}${sandbox}${metaStr}`);
+
+      // Sessions in this sandbox
+      const nodes = nodesByDir.get(sandbox) ?? [];
+      const childrenOf = new Map<string, typeof data.nodes>();
+      const roots: typeof data.nodes = [];
+      for (const node of nodes) {
+        if (!node.parentID) {
+          roots.push(node);
+        } else {
+          const siblings = childrenOf.get(node.parentID) ?? [];
+          siblings.push(node);
+          childrenOf.set(node.parentID, siblings);
+        }
+      }
+      roots.sort((a, b) => (b.timeUpdated ?? 0) - (a.timeUpdated ?? 0));
+
+      if (roots.length === 0 && info.sessionCount === 0) {
+        lines.push(`${sPrefix}(no sessions)`);
+      }
+      for (let i = 0; i < roots.length; i++) {
+        printSession(roots[i], childrenOf, sPrefix, i === roots.length - 1);
+      }
+    }
+
+    lines.push('');
+  }
+
+  return lines.join('\n');
 }
 
 function openDebugSessionViewer() {
-  void refreshSessionDiff();
+  const key = 'debug:session-graph';
+  const content = formatSessionGraphDump();
+  const pos = getFileViewerPosition(0.12, 0.08);
+  if (fw.has(key)) fw.close(key);
+  fw.open(key, {
+    component: FileViewerContent,
+    props: {
+      fileContent: content,
+      lang: 'text',
+      gutterMode: 'none',
+      theme: shikiTheme.value,
+    },
+    closable: true,
+    resizable: true,
+    scroll: 'manual',
+    title: 'Debug: Session Graph',
+    x: pos.x,
+    y: pos.y,
+    width: FILE_VIEWER_WINDOW_WIDTH,
+    height: FILE_VIEWER_WINDOW_HEIGHT,
+    expiry: Infinity,
+  });
 }
 
-function runDebugTool(tool: string) {
-  const normalized = tool.trim().toLowerCase();
-  if (!normalized || normalized === 'help') {
-    const tools = Array.from(TOOL_WINDOW_SUPPORTED.values()).join(', ');
-    return { ok: true, message: `Debug tools: ${tools}, all` };
-  }
-
-  const toolsToRun =
-    normalized === 'all' ? Array.from(TOOL_WINDOW_SUPPORTED.values()) : [normalized];
-
-  // Accumulate offset across all tools so events are staggered sequentially.
-  const INTER_TOOL_GAP_MS = 800;
-  let offset = 0;
-  const sessionId = selectedSessionId.value || 'ses_debug';
-  const timerId = Date.now();
-
-  for (const toolName of toolsToRun) {
-    const events = buildDebugToolEvents(toolName);
-    if (!events) {
-      return { ok: false, message: `Unknown debug tool: ${toolName}` };
+function runDebugCommand(args: string): { ok: boolean; message: string } {
+  const sub = args.trim().toLowerCase();
+  if (!sub || sub === 'help') {
+    const lines = ['Available /debug subcommands:'];
+    for (const [name, desc] of Object.entries(DEBUG_SUBCOMMANDS)) {
+      lines.push(`  ${name} — ${desc}`);
     }
-    const baseCallId = `debug:${toolName}:${timerId}:${Math.random().toString(36).slice(2, 8)}`;
-    events.forEach((event, index) => {
-      const delay = Math.max(0, event.delayMs ?? (index === 0 ? 0 : 350));
-      offset += delay;
-      const scheduleAt = offset;
-      const effectiveToolName = event.toolName ?? toolName;
-      const callId = event.callIdSuffix ? `${baseCallId}:${event.callIdSuffix}` : baseCallId;
-      window.setTimeout(() => {
-        injectSyntheticEvent({
-          type: 'tool',
-          tool: effectiveToolName,
-          callID: callId,
-          sessionID: sessionId,
-          state: {
-            status: event.status,
-            input: event.input ?? {},
-            output: event.output,
-            metadata: event.metadata,
-            error: event.error,
-          },
-        });
-      }, scheduleAt);
-    });
-    // Add gap between tools when running multiple
-    if (toolsToRun.length > 1) offset += INTER_TOOL_GAP_MS;
+    return { ok: true, message: lines.join('\n') };
   }
-
-  return {
-    ok: true,
-    message:
-      normalized === 'all'
-        ? `Queued debug events for ${TOOL_WINDOW_SUPPORTED.size} tools (total ${Math.ceil(offset / 1000)}s).`
-        : `Queued debug events for ${normalized}.`,
-  };
+  if (sub === 'session' || sub === 'sessions') {
+    openDebugSessionViewer();
+    return { ok: true, message: 'Session graph opened.' };
+  }
+  return { ok: false, message: `Unknown debug subcommand: ${sub}. Type /debug help for a list.` };
 }
+
+
 
 async function sendCommand(sessionId: string, command: CommandInfo, commandArgs: string) {
   if (!ensureConnectionReady('Sending commands')) return;
@@ -4079,14 +4142,7 @@ async function sendMessage() {
       return;
     }
     if (slash && slash.name.toLowerCase() === 'debug') {
-      const debugArg = (slash.arguments ?? '').trim().toLowerCase();
-      if (debugArg === 'session' || debugArg === 'sessions') {
-        openDebugSessionViewer();
-        sendStatus.value = 'Session graph opened.';
-        clearComposerDraftForCurrentContext();
-        return;
-      }
-      const debugResult = runDebugTool(slash.arguments ?? 'list');
+      const debugResult = runDebugCommand(slash.arguments ?? '');
       sendStatus.value = debugResult.message;
       clearComposerDraftForCurrentContext();
       return;

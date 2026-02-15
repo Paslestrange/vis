@@ -155,6 +155,7 @@
                     :code="getMessageContent(entry.message)"
                     :lang="'markdown'"
                     :theme="theme"
+                    @rendered="historyScroller.notifyContentChange()"
                   />
                 </div>
               </div>
@@ -628,7 +629,7 @@ const thinkingSuffix = ref('');
 const activeHistoryRoot = ref<MessageInfo | null>(null);
 const historyListEl = ref<HTMLElement | undefined>();
 const historyScrollMode = ref<'follow'>('follow');
-const historyScroller = useAutoScroller(historyListEl, historyScrollMode, { smoothOnInitialFollow: false });
+const historyScroller = useAutoScroller(historyListEl, historyScrollMode, { smoothEngine: 'native', smoothOnInitialFollow: true });
 let thinkingTimer: number | undefined;
 let contentResizeObserver: ResizeObserver | undefined;
 

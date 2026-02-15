@@ -187,24 +187,29 @@ onBeforeUnmount(() => {
 }
 
 .message-content :deep(.markdown-host h1) {
-  margin: 0.2em 0 0.1em;
-  font-size: 1.08em;
+  margin: 0.5em 0 0.25em;
+  font-size: 1.3em;
   font-weight: 700;
 }
 
 .message-content :deep(.markdown-host h2) {
-  margin: 0.18em 0 0.08em;
-  font-size: 1.04em;
+  margin: 0.4em 0 0.2em;
+  font-size: 1.2em;
   font-weight: 700;
 }
 
 .message-content :deep(.markdown-host h3) {
-  margin: 0.15em 0 0.06em;
-  font-size: 1em;
+  margin: 0.35em 0 0.15em;
+  font-size: 1.12em;
   font-weight: 600;
 }
 
-.message-content :deep(.markdown-host h4),
+.message-content :deep(.markdown-host h4) {
+  margin: 0.3em 0 0.1em;
+  font-size: 1.06em;
+  font-weight: 600;
+}
+
 .message-content :deep(.markdown-host h5),
 .message-content :deep(.markdown-host h6) {
   margin: 0.12em 0 0.04em;

@@ -1263,31 +1263,31 @@ const inputMessageStyle = computed(() => {
 }
 
 .input-button.primary {
-  background: transparent;
+  background: rgba(37, 99, 235, 0.2);
   border-color: transparent;
   border-radius: 50%;
   width: 32px;
   height: 32px;
-  color: #94a3b8;
-}
-
-.input-button.primary:hover:not(:disabled) {
-  background: rgba(37, 99, 235, 0.2);
   color: #60a5fa;
 }
 
+.input-button.primary:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.35);
+  color: #93bbfd;
+}
+
 .input-button.stop {
-  background: transparent;
+  background: rgba(220, 38, 38, 0.2);
   border-color: transparent;
   border-radius: 50%;
   width: 32px;
   height: 32px;
-  color: #94a3b8;
+  color: #f87171;
 }
 
 .input-button.stop:hover:not(:disabled) {
-  background: rgba(220, 38, 38, 0.2);
-  color: #f87171;
+  background: rgba(220, 38, 38, 0.35);
+  color: #fca5a5;
 }
 
 .attach-button {

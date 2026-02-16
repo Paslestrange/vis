@@ -33,6 +33,7 @@
                 ref="outputPanelRef"
                 :key="selectedSessionId"
                 class="output-panel"
+                :project-color="currentProjectColor"
                 :is-following="isFollowing"
                 :status-text="statusText"
                 :is-status-error="isStatusError"
@@ -712,6 +713,10 @@ const selectedProjectId = computed(() => {
   void sessionGraphVersion.value;
   const sandbox = sessionGraphStore.getSandbox(projectDirectory.value, activeDirectory.value);
   return sandbox?.projectID ?? '';
+});
+const currentProjectColor = computed(() => {
+  const pid = selectedProjectId.value;
+  return pid ? projectColorById.value[pid] : undefined;
 });
 const activeDirectory = ref('');
 const selectedSessionId = ref('');

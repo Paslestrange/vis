@@ -1,6 +1,6 @@
 <template>
   <div class="output-panel-root">
-    <div class="output-panel-shell">
+    <div class="output-panel-shell" :style="shellStyle">
       <div
         ref="panelEl"
         class="output-panel-scroll"
@@ -195,6 +195,7 @@ const props = defineProps<{
   theme: string;
   resolveAgentColor?: (agent?: string) => string;
   computeContextPercent?: (tokens: MessageTokens, providerId?: string, modelId?: string) => number | null;
+  projectColor?: string;
 }>();
 
 const emit = defineEmits<{
@@ -739,6 +740,11 @@ onBeforeUnmount(() => {
   if (thinkingTimer !== undefined) window.clearInterval(thinkingTimer);
 });
 
+const shellStyle = computed(() => {
+  if (!props.projectColor) return undefined;
+  return { '--project-tint': props.projectColor } as Record<string, string>;
+});
+
 defineExpose({ panelEl });
 </script>
 
@@ -757,7 +763,11 @@ defineExpose({ panelEl });
   min-height: 0;
   overflow: hidden;
   position: relative;
-  background: rgba(15, 23, 42, 0.92);
+  background-color: rgba(15, 23, 42, 0.92);
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--project-tint, transparent) 9%, transparent),
+    color-mix(in srgb, var(--project-tint, transparent) 9%, transparent)
+  );
   color: #e2e8f0;
   border: 1px solid #334155;
   border-radius: 12px;

@@ -3,6 +3,7 @@
     <template v-if="uiInitState === 'ready'">
       <header class="app-header">
         <TopPanel
+          ref="topPanelRef"
           :tree-data="topPanelTreeData"
           :notification-sessions="notificationSessions"
           :project-directory="projectDirectory"
@@ -21,6 +22,7 @@
           @open-directory="openProjectPicker"
           @open-settings="isSettingsOpen = true"
           @logout="handleLogout"
+          @dropdown-closed="focusInput"
         />
       </header>
       <main ref="outputEl" class="app-output">
@@ -450,6 +452,7 @@ const outputEl = ref<HTMLElement | null>(null);
 const inputEl = ref<HTMLElement | null>(null);
 const toolWindowCanvasEl = ref<HTMLDivElement | null>(null);
 const outputPanelRef = ref<{ panelEl: HTMLDivElement | null; isHistoryOpen: boolean; closeHistory: () => void } | null>(null);
+const topPanelRef = ref<{ openSessionDropdown: () => void } | null>(null);
 const inputPanelRef = ref<{ focus: () => void; reset: () => void } | null>(null);
 const outputPanelContainerEl = computed(() => outputPanelRef.value?.panelEl ?? undefined);
 const outputPanelScrollMode = computed<ScrollMode>(() => 'follow');
@@ -4206,9 +4209,34 @@ async function sendMessage() {
 }
 
 let lastEscTime = 0;
+let lastCtrlGTime = 0;
 const DOUBLE_ESC_THRESHOLD = 500;
+const DOUBLE_CTRL_G_THRESHOLD = 500;
 
 function handleGlobalKeydown(event: KeyboardEvent) {
+  // Ctrl-;: new chat
+  if (event.ctrlKey && !event.metaKey && !event.altKey && event.key === ';') {
+    event.preventDefault();
+    createNewSession();
+    return;
+  }
+
+  // Ctrl-G: single = open session dropdown, double = select notification
+  if (event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'g') {
+    event.preventDefault();
+    const now = Date.now();
+    if (now - lastCtrlGTime < DOUBLE_CTRL_G_THRESHOLD) {
+      lastCtrlGTime = 0;
+      if (notificationSessions.value.length > 0) {
+        handleNotificationSessionSelect();
+      }
+    } else {
+      lastCtrlGTime = now;
+      topPanelRef.value?.openSessionDropdown();
+    }
+    return;
+  }
+
   if (event.key !== 'Escape') return;
 
   // Priority 1: Close any open modal / overlay
@@ -4238,6 +4266,10 @@ function handleGlobalKeydown(event: KeyboardEvent) {
   } else {
     lastEscTime = now;
   }
+}
+
+function focusInput() {
+  nextTick(() => inputPanelRef.value?.focus());
 }
 
 async function abortSession() {

@@ -10,7 +10,7 @@
           type="button"
           class="control-button notification-button"
           :class="{ 'has-notifications': notifications.length > 0 }"
-          :title="notifications.length > 0 ? `${totalNotificationCount} pending notifications` : 'No notifications'"
+          :title="notifications.length > 0 ? `${totalNotificationCount} pending notifications (Ctrl-G x2)` : 'No notifications'"
           :disabled="notifications.length === 0"
           @click="$emit('select-notification')"
         >
@@ -18,9 +18,11 @@
           <span v-if="notifications.length > 0" class="notification-badge">{{ totalNotificationCount }}</span>
         </button>
         <Dropdown
+          v-model:open="treeDropdownOpen"
           class="tree-dropdown-root"
           :label="dropdownLabel"
           placeholder="Select session"
+          title="Select session (Ctrl-G)"
           auto-close
       :popup-style="{ minWidth: '420px', width: 'min(680px, 90vw)', maxWidth: '90vw' }"
       popup-class="max-lg:left-0! max-lg:w-screen! max-lg:min-w-0! max-lg:max-w-none!"
@@ -48,7 +50,7 @@
                   placeholder="Search sessions, branches, directories..."
                   class="search-input"
                   @click.stop
-                  @keydown.enter.prevent.stop="selectFirstSearchResult(close)"
+                  
                 />
                 <button v-if="searchQuery" type="button" class="clear-search" @click.stop="searchQuery = ''">
                   <Icon icon="lucide:x" />
@@ -144,7 +146,7 @@
           </template>
         </Dropdown>
 
-        <button type="button" class="control-button new-session-button" :disabled="!selectedSessionId" @click="$emit('new-session')" title="New session">
+        <button type="button" class="control-button new-session-button" :disabled="!selectedSessionId" @click="$emit('new-session')" title="New session (Ctrl-;)">
           <Icon icon="lucide:message-circle-plus" :width="16" :height="16" />
         </button>
         <button type="button" class="control-button open-shell-button" :disabled="!activeDirectory" @click="$emit('open-shell')" title="Open shell">
@@ -182,7 +184,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, type Directive, nextTick, onBeforeUnmount, onMounted } from 'vue';
+import { computed, ref, watch, type Directive, nextTick, onBeforeUnmount, onMounted } from 'vue';
 import { Icon } from '@iconify/vue';
 import Dropdown from './Dropdown.vue';
 import DropdownItem from './Dropdown/Item.vue';
@@ -248,9 +250,21 @@ const emit = defineEmits<{
   (event: 'open-shell'): void;
   (event: 'open-settings'): void;
   (event: 'logout'): void;
+  (event: 'dropdown-closed'): void;
 }>();
 
 const menuOpen = ref(false);
+const treeDropdownOpen = ref(false);
+
+watch(treeDropdownOpen, (open) => {
+  if (!open) emit('dropdown-closed');
+});
+
+function openSessionDropdown() {
+  treeDropdownOpen.value = true;
+}
+
+defineExpose({ openSessionDropdown });
 
 function onMenuSelect(value: unknown) {
   if (value === 'settings') emit('open-settings');
@@ -405,22 +419,6 @@ function onTreeSelect(payload: unknown) {
     directory: value.directory,
     sessionId: value.sessionId,
   });
-}
-
-function selectFirstSearchResult(close: () => void) {
-  for (const worktree of displayedTree.value) {
-    for (const sandbox of worktree.sandboxes) {
-      const session = sandbox.sessions[0];
-      if (!session) continue;
-      emit('select-session', {
-        worktree: worktree.directory,
-        directory: sandbox.directory,
-        sessionId: session.id,
-      });
-      close();
-      return;
-    }
-  }
 }
 
 function handleCreateSessionIn(worktree: string, directory: string, close: () => void) {

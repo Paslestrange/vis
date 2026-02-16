@@ -23,6 +23,7 @@ const scrollMode = computed<ScrollMode>(() => props.entry.scroll || 'manual');
 const { showResumeButton, isFollowing, resumeFollow, notifyContentChange } = useAutoScroller(
   bodyEl,
   scrollMode,
+  { smoothEngine: props.entry.smoothEngine },
 );
 
 function handleResumeFollowClick() {

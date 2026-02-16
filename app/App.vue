@@ -47,9 +47,7 @@
                 @fork-message="handleForkMessage"
                 @revert-message="handleRevertMessage"
                 @show-message-diff="handleShowMessageDiff"
-                @open-history-tool="handleOpenHistoryTool"
-                @open-history-reasoning="handleOpenHistoryReasoning"
-                @close-history-tools="handleCloseHistoryTools"
+                @show-thread-history="handleShowThreadHistory"
                 @edit-message="handleEditMessage"
                 @open-image="handleOpenImage"
                 @content-resized="handleOutputPanelContentResized"
@@ -247,6 +245,7 @@ import BashContent from './components/ToolWindow/Bash.vue';
 import GlobContent from './components/ToolWindow/Glob.vue';
 import GrepContent from './components/ToolWindow/Grep.vue';
 import ReasoningContent from './components/ToolWindow/Reasoning.vue';
+import ThreadHistoryContent from './components/ThreadHistoryContent.vue';
 import SubagentContent from './components/ToolWindow/Subagent.vue';
 import WebContent from './components/ToolWindow/Web.vue';
 import SidePanel from './components/SidePanel.vue';
@@ -462,7 +461,7 @@ const appEl = ref<HTMLDivElement | null>(null);
 const outputEl = ref<HTMLElement | null>(null);
 const inputEl = ref<HTMLElement | null>(null);
 const toolWindowCanvasEl = ref<HTMLDivElement | null>(null);
-const outputPanelRef = ref<{ panelEl: HTMLDivElement | null; isHistoryOpen: boolean; closeHistory: () => void } | null>(null);
+const outputPanelRef = ref<{ panelEl: HTMLDivElement | null } | null>(null);
 const topPanelRef = ref<{ openSessionDropdown: () => void; closeSessionDropdown: () => void; toggleSessionDropdown: () => void } | null>(null);
 const inputPanelRef = ref<{ focus: () => void; reset: () => void } | null>(null);
 const outputPanelContainerEl = computed(() => outputPanelRef.value?.panelEl ?? undefined);
@@ -4280,11 +4279,6 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     lastEscTime = 0;
     return;
   }
-  if (outputPanelRef.value?.isHistoryOpen) {
-    outputPanelRef.value.closeHistory();
-    lastEscTime = 0;
-    return;
-  }
 
   // Priority 2: Double-ESC to abort
   const now = Date.now();
@@ -5609,10 +5603,6 @@ function handleOpenHistoryTool(payload: { part: ToolPart }) {
   for (const key of keys) historyToolWindowKeys.add(key);
 }
 
-function handleCloseHistoryTools() {
-  closeHistoryToolWindows();
-}
-
 function handleOpenHistoryReasoning(payload: { part: ReasoningPart }) {
   closeHistoryToolWindows();
   const { width, height } = fw.getExtent();
@@ -5639,6 +5629,47 @@ function handleOpenHistoryReasoning(payload: { part: ReasoningPart }) {
     height: winH,
     x,
     y,
+  });
+}
+
+type ThreadHistoryEntry =
+  | { key: string; kind: 'message'; content: string; time: number; agent?: string }
+  | { key: string; kind: 'tool'; part: ToolPart; time: number }
+  | { key: string; kind: 'reasoning'; part: ReasoningPart; time: number };
+
+function handleShowThreadHistory(payload: { entries: ThreadHistoryEntry[] }) {
+  const entries = payload.entries;
+  const key = 'thread-history';
+  if (fw.has(key)) {
+    fw.updateOptions(key, { props: { entries } });
+    fw.bringToFront(key);
+    return;
+  }
+  const { width, height } = fw.getExtent();
+  const winW = 720;
+  const winH = 520;
+  const x = Math.max(0, Math.round((width - winW) / 2));
+  const y = Math.max(0, Math.round((height - winH) / 2));
+  fw.open(key, {
+    component: ThreadHistoryContent,
+    props: {
+      entries,
+      theme: shikiTheme.value,
+      onToolClick: (part: ToolPart) => handleOpenHistoryTool({ part }),
+      onReasoningClick: (part: ReasoningPart) => handleOpenHistoryReasoning({ part }),
+    },
+    title: 'Thread History',
+    scroll: 'follow',
+    smoothEngine: 'native',
+    closable: true,
+    resizable: true,
+    variant: 'message',
+    expiry: Infinity,
+    width: winW,
+    height: winH,
+    x,
+    y,
+    afterClose: closeHistoryToolWindows,
   });
 }
 

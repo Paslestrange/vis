@@ -22,6 +22,7 @@ export interface FloatingWindowEntry {
   closable: boolean;
   resizable: boolean;
   scroll: 'follow' | 'force' | 'manual' | 'none';
+  smoothEngine?: 'raf' | 'native';
   color?: string;
   time: number;
   expiry?: number;

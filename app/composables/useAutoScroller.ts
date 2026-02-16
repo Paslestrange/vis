@@ -225,7 +225,11 @@ export function useAutoScroller(
 
   function scheduleAutoScroll(smooth: boolean) {
     if (isTrackingPaused.value) {
-      return;
+      if (nativeSmoothCleanup) {
+        clearNativeSmoothMonitor();
+      } else {
+        return;
+      }
     }
     if (contentChangeScheduled) {
       return;

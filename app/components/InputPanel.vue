@@ -131,10 +131,10 @@
             >
               <template #label>
                 <div class="model-button-label">
-                  <span class="model-button-name">{{ selectedModelDisplayName }}</span>
-                  <span v-if="selectedModelPath" class="model-button-path">{{
-                    selectedModelPath
+                  <span v-if="selectedModelProviderName" class="model-button-path">{{
+                    selectedModelProviderName
                   }}</span>
+                  <span class="model-button-name">{{ selectedModelDisplayName }}</span>
                 </div>
               </template>
               <template #default>
@@ -683,10 +683,10 @@ const selectedModelOption = computed(() =>
 
 const selectedModelDisplayName = computed(() => selectedModelOption.value?.displayName ?? '');
 
-const selectedModelPath = computed(() => {
+const selectedModelProviderName = computed(() => {
   const opt = selectedModelOption.value;
   if (!opt) return '';
-  return `${opt.providerID ?? ''}/${opt.modelID}`;
+  return opt.providerLabel ?? opt.providerID ?? '';
 });
 
 const thinkingChoices = computed<ThinkingChoice[]>(() =>

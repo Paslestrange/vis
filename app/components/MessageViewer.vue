@@ -119,16 +119,11 @@ onBeforeUnmount(() => {
 }
 
 .message-content :deep(pre.shiki > code) {
-  display: grid;
-  grid-template-columns: 1fr;
-  column-gap: 0;
+  display: block;
 }
 
 .message-content :deep(.code-row) {
-  display: grid;
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
-  align-items: start;
+  display: block;
 }
 
 .message-content :deep(.code-gutter) {
@@ -136,12 +131,10 @@ onBeforeUnmount(() => {
 }
 
 .message-content :deep(.line) {
-  display: block;
-  min-height: 1em;
+  display: inline;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
-  box-sizing: border-box;
 }
 
 .message-content :deep(.line:empty)::after {
@@ -349,6 +342,7 @@ onBeforeUnmount(() => {
 
 .message-content :deep(.markdown-host pre code) {
   display: block;
+  white-space: pre-line;
   background: transparent;
   border: 0;
   padding: 0;

@@ -244,6 +244,8 @@ import {
   onMounted,
   reactive,
   ref,
+  shallowRef,
+  triggerRef,
   watch,
 } from 'vue';
 import { bundledThemes } from 'shiki/bundle/web';
@@ -706,30 +708,26 @@ type CommandInfo = {
 };
 
 const projects = computed<ProjectInfo[]>(() => {
-  void sessionGraphVersion.value;
-  return sessionGraphStore.getProjects() as ProjectInfo[];
+  return sessionGraphStore.value.getProjects() as ProjectInfo[];
 });
 const worktrees = computed<string[]>(() => {
-  void sessionGraphVersion.value;
   const pd = projectDirectory.value?.trim();
   if (!pd) return [];
-  return sessionGraphStore.getWorktrees(pd);
+  return sessionGraphStore.value.getWorktrees(pd);
 });
 const worktreeMetaByDir = computed<Record<string, VcsInfo>>(() => {
-  void sessionGraphVersion.value;
   const result: Record<string, VcsInfo> = {};
   worktrees.value.forEach((dir) => {
-    const info = sessionGraphStore.getVcsInfo(dir);
+    const info = sessionGraphStore.value.getVcsInfo(dir);
     if (info) result[dir] = info;
   });
   return result;
 });
 const worktreeMetaRequestIdByDir = new Map<string, number>();
 let worktreeMetaRequestId = 0;
-let sessionGraphStore = createSessionGraphStore();
-let graphForWrite: ReturnType<typeof createSessionGraphStore> = sessionGraphStore;
+const sessionGraphStore = shallowRef(createSessionGraphStore());
+let graphForWrite: ReturnType<typeof createSessionGraphStore> = sessionGraphStore.value;
 let rebuildingGraph = false;
-const sessionGraphVersion = ref(0);
 const bootstrapReady = ref(false);
 const providers = ref<ProviderInfo[]>([]);
 const agents = ref<AgentInfo[]>([]);
@@ -756,13 +754,11 @@ const providersFetchCount = ref(0);
 const agentsLoading = ref(false);
 const commandsLoading = ref(false);
 const selectedProjectId = computed(() => {
-  void sessionGraphVersion.value;
-  const sandbox = sessionGraphStore.getSandbox(projectDirectory.value, activeDirectory.value);
+  const sandbox = sessionGraphStore.value.getSandbox(projectDirectory.value, activeDirectory.value);
   return sandbox?.projectID ?? '';
 });
 const currentProjectColor = computed(() => {
-  void sessionGraphVersion.value;
-  const pid = sessionGraphStore.resolveProjectIDForDirectory(projectDirectory.value);
+  const pid = sessionGraphStore.value.resolveProjectIDForDirectory(projectDirectory.value);
   return pid ? projectColorById.value[pid] : undefined;
 });
 const activeDirectory = ref('');
@@ -867,33 +863,29 @@ const baseWorktreeOptions = computed(() => {
 });
 
 const allWorktreeDirectories = computed(() => {
-  void sessionGraphVersion.value;
-  return sessionGraphStore.getWorktreeList();
+  return sessionGraphStore.value.getWorktreeList();
 });
 
 const allSandboxDirectories = computed(() => {
-  void sessionGraphVersion.value;
   const dirs: string[] = [];
-  for (const wt of sessionGraphStore.getWorktreeList()) {
-    dirs.push(...sessionGraphStore.getSandboxList(wt));
+  for (const wt of sessionGraphStore.value.getWorktreeList()) {
+    dirs.push(...sessionGraphStore.value.getSandboxList(wt));
   }
   return dirs;
 });
 
 const sessions = computed(() => {
-  void sessionGraphVersion.value;
   const directory = activeDirectory.value.trim();
   const projectID = selectedProjectId.value.trim();
-  return sessionGraphStore.getRootSessions({
+  return sessionGraphStore.value.getRootSessions({
     projectID: projectID || undefined,
     directory: directory || undefined,
   }) as SessionInfo[];
 });
 
 const sessionParentById = computed(() => {
-  void sessionGraphVersion.value;
   const directory = activeDirectory.value.trim();
-  return sessionGraphStore.getParentMap(directory || undefined);
+  return sessionGraphStore.value.getParentMap(directory || undefined);
 });
 
 const sessionParentRecord = reactive<Record<string, string | undefined>>({});
@@ -923,27 +915,27 @@ const filteredSessions = computed(() =>
 );
 
 const topPanelTreeData = computed<TopPanelWorktree[]>(() => {
-  void sessionGraphVersion.value;
+  const graph = sessionGraphStore.value;
 
   const worktreeEntries = allWorktreeDirectories.value
     .map((worktreeDirectory) => {
-      const sandboxEntries = sessionGraphStore
+      const sandboxEntries = graph
         .getSandboxList(worktreeDirectory)
         .map((sandboxDirectory) => {
-          const roots = sessionGraphStore.getRootSessions({ directory: sandboxDirectory }) as SessionInfo[];
+          const roots = graph.getRootSessions({ directory: sandboxDirectory }) as SessionInfo[];
           const sessionsForSandbox = roots
             .map((session) => ({
               id: session.id,
               title: session.title,
               slug: session.slug,
-              status: (sessionGraphStore.getStatus(session.id, session.projectID) ??
+              status: (graph.getStatus(session.id, session.projectID) ??
                 'unknown') as 'busy' | 'idle' | 'retry' | 'unknown',
               timeUpdated: session.time?.updated ?? session.time?.created,
               archivedAt: session.time?.archived,
             }))
             .sort((a, b) => (b.timeUpdated ?? 0) - (a.timeUpdated ?? 0));
 
-          const branch = sessionGraphStore.getVcsInfo(sandboxDirectory)?.branch;
+          const branch = graph.getVcsInfo(sandboxDirectory)?.branch;
           const latestUpdated = sessionsForSandbox[0]?.timeUpdated ?? 0;
           const oldestCreated = roots.length > 0
             ? Math.min(...roots.map((s) => s.time?.created ?? Infinity))
@@ -970,7 +962,7 @@ const topPanelTreeData = computed<TopPanelWorktree[]>(() => {
         .flatMap((sandbox) => sandbox.sessions)
         .reduce((max, session) => Math.max(max, session.timeUpdated ?? 0), 0);
 
-      const projectId = sessionGraphStore.resolveProjectIDForDirectory(worktreeDirectory);
+      const projectId = graph.resolveProjectIDForDirectory(worktreeDirectory);
       const meta = projectId ? projectMetaById.value[projectId] : undefined;
       const name = meta?.name?.trim()
         || worktreeDirectory.replace(/\/+$/, '').split('/').pop()
@@ -998,7 +990,7 @@ const topPanelTreeData = computed<TopPanelWorktree[]>(() => {
 
 /** Resolve VCS branch for a directory via /vcs (fire-and-forget). */
 function resolveVcsBranch(dir: string) {
-  if (sessionGraphStore.getVcsInfo(dir)) return;
+  if (sessionGraphStore.value.getVcsInfo(dir)) return;
   void fetchWorktreeMeta(dir);
 }
 
@@ -1098,7 +1090,7 @@ const canSend = computed(() =>
 const busyDescendantSessionIds = computed(() => {
   const allowed = allowedSessionIds.value;
   const selected = selectedSessionId.value;
-  void sessionGraphVersion.value;
+  void sessionGraphStore.value;
   const ids: string[] = [];
   for (const sid of allowed) {
     if (sid === selected) continue;
@@ -1110,7 +1102,7 @@ const busyDescendantSessionIds = computed(() => {
 
 const isThinking = computed(() => {
   const selected = selectedSessionId.value;
-  void sessionGraphVersion.value;
+  void sessionGraphStore.value;
   const ownStatus = selected ? getSessionStatus(selected) : undefined;
   return Boolean(
     ownStatus === 'busy' ||
@@ -1564,7 +1556,7 @@ function pruneOrphanedComposerDrafts() {
   return;
   if (!bootstrapReady.value) return;
   const store = readComposerDraftStore();
-  const knownSessionIDs = sessionGraphStore.getKnownSessionIDs();
+  const knownSessionIDs = sessionGraphStore.value.getKnownSessionIDs();
   if (knownSessionIDs.size === 0) return;
   const currentContextKey = draftKeyForSelectedContext();
   const cleaned: Record<string, ComposerDraft> = {};
@@ -1737,7 +1729,7 @@ function clamp(value: number, min: number, max: number) {
 
 function getSessionStatus(sessionId: string, projectId?: string) {
   if (!sessionId) return undefined;
-  return sessionGraphStore.getStatus(sessionId, projectId);
+  return sessionGraphStore.value.getStatus(sessionId, projectId);
 }
 
 function getDescendantSessionIds(rootId: string): string[] {
@@ -1768,7 +1760,7 @@ function hasAnyBusyDescendant(rootId: string, projectId?: string): boolean {
 }
 
 const sessionStatusByIdRecord = computed<Record<string, SessionStatusType>>(() => {
-  void sessionGraphVersion.value;
+  void sessionGraphStore.value;
   const next: Record<string, SessionStatusType> = {};
   sessions.value.forEach((session) => {
     if (session.parentID) return;
@@ -2109,7 +2101,7 @@ function handlePointerUp() {
 
 function markSessionGraphChanged() {
   if (rebuildingGraph) return;
-  sessionGraphVersion.value = sessionGraphStore.getVersion();
+  triggerRef(sessionGraphStore);
   pruneOrphanedComposerDrafts();
 }
 
@@ -2670,7 +2662,7 @@ async function handleProjectDirectorySelect(directory: string) {
 
   // For new projects, try to set name from package.json
   const newProjectId = session?.projectID
-    || sessionGraphStore.resolveProjectIDForDirectory(directory);
+    || sessionGraphStore.value.resolveProjectIDForDirectory(directory);
   if (isNewProject && newProjectId && newProjectId !== 'global') {
     void initProjectNameFromPackageJson(newProjectId, directory);
   }
@@ -2678,10 +2670,10 @@ async function handleProjectDirectorySelect(directory: string) {
 
 function collectKnownSandboxDirectories() {
   const set = new Set<string>();
-  sessionGraphStore.getWorktreeList().forEach((worktreeDirectory) => {
+  sessionGraphStore.value.getWorktreeList().forEach((worktreeDirectory) => {
     const normalizedWorktree = worktreeDirectory.trim();
     if (normalizedWorktree) set.add(normalizedWorktree);
-    sessionGraphStore.getSandboxList(worktreeDirectory).forEach((sandboxDirectory) => {
+    sessionGraphStore.value.getSandboxList(worktreeDirectory).forEach((sandboxDirectory) => {
       const normalizedSandbox = sandboxDirectory.trim();
       if (normalizedSandbox) set.add(normalizedSandbox);
     });
@@ -2695,7 +2687,7 @@ function collectKnownSandboxDirectories() {
 
 async function rebuildSessionGraph() {
   const builder = createSessionGraphStore();
-  builder.importProjectState(sessionGraphStore.cloneProjectState());
+  builder.importProjectState(sessionGraphStore.value.cloneProjectState());
   graphForWrite = builder;
   rebuildingGraph = true;
 
@@ -2705,7 +2697,7 @@ async function rebuildSessionGraph() {
       rebuildFetchRootsAndChildren(builder),
     ]);
   } finally {
-    sessionGraphStore = builder;
+    sessionGraphStore.value = builder;
     graphForWrite = builder;
     rebuildingGraph = false;
     markSessionGraphChanged();
@@ -2798,8 +2790,8 @@ function finalizeSelectionAfterBootstrap() {
   const initialProjectId = initialQuery.projectId.trim();
   const initialSessionId = initialQuery.sessionId.trim();
   if (initialProjectId && initialSessionId) {
-    const initialSession = sessionGraphStore.getSession(initialSessionId, initialProjectId);
-    const rootDirectory = sessionGraphStore.getProjectRootForProject(initialProjectId);
+    const initialSession = sessionGraphStore.value.getSession(initialSessionId, initialProjectId);
+    const rootDirectory = sessionGraphStore.value.getProjectRootForProject(initialProjectId);
     if (rootDirectory) projectDirectory.value = rootDirectory;
     if (initialSession) {
       const targetDirectory = initialSession.directory?.trim();
@@ -3802,7 +3794,7 @@ const DEBUG_SUBCOMMANDS: Record<string, string> = {
 };
 
 function formatSessionGraphDump(): string {
-  const data = sessionGraphStore.dump();
+  const data = sessionGraphStore.value.dump();
   const lines: string[] = [];
 
   lines.push(`Session Graph  (version ${data.version})`);

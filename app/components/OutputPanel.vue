@@ -217,8 +217,26 @@ const emit = defineEmits<{
 
 const visibleRoots = computed(() => msg.roots.value);
 
+const cachedThreads = computed(() => {
+  const map = new Map<string, MessageInfo[]>();
+  for (const root of visibleRoots.value) {
+    map.set(root.id, msg.getThread(root.id));
+  }
+  return map;
+});
+
+const cachedFinalAnswers = computed(() => {
+  const map = new Map<string, MessageInfo | undefined>();
+  for (const root of visibleRoots.value) {
+    const thread = cachedThreads.value.get(root.id) ?? [];
+    const assistants = thread.filter((m) => m.role === 'assistant' && msg.hasTextContent(m.id));
+    map.set(root.id, assistants[assistants.length - 1]);
+  }
+  return map;
+});
+
 function getThread(rootId: string): MessageInfo[] {
-  return msg.getThread(rootId);
+  return cachedThreads.value.get(rootId) ?? msg.getThread(rootId);
 }
 
 function getChildren(parentId: string): MessageInfo[] {
@@ -226,6 +244,9 @@ function getChildren(parentId: string): MessageInfo[] {
 }
 
 function getFinalAnswer(root: MessageInfo): MessageInfo | undefined {
+  if (cachedFinalAnswers.value.has(root.id)) {
+    return cachedFinalAnswers.value.get(root.id);
+  }
   return msg.getFinalAnswer(root.id);
 }
 

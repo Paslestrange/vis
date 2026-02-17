@@ -156,6 +156,24 @@ const streaming = computed(() => {
   return result.sort(byTimeThenId);
 });
 
+const childrenByParent = computed(() => {
+  const index = new Map<string, MessageInfo[]>();
+  for (const messageRef of messages.value.values()) {
+    const info = messageRef.value.info;
+    if (!info || info.role !== 'assistant') continue;
+    let list = index.get(info.parentID);
+    if (!list) {
+      list = [];
+      index.set(info.parentID, list);
+    }
+    list.push(info);
+  }
+  for (const list of index.values()) {
+    list.sort(byTimeThenId);
+  }
+  return index;
+});
+
 function ensureMessage(id: string, notifyCollection = true): ShallowRef<MessageEntry> {
   let ref = messages.value.get(id);
   if (ref) return ref;
@@ -334,14 +352,7 @@ function getCompletedTime(id: string): number | undefined {
 }
 
 function getChildren(parentId: string): MessageInfo[] {
-  const result: MessageInfo[] = [];
-  for (const messageRef of messages.value.values()) {
-    const info = messageRef.value.info;
-    if (!info || info.role !== 'assistant') continue;
-    if (info.parentID !== parentId) continue;
-    result.push(info);
-  }
-  return result.sort(byTimeThenId);
+  return childrenByParent.value.get(parentId) ?? [];
 }
 
 function getThread(rootId: string): MessageInfo[] {

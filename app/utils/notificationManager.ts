@@ -1,4 +1,4 @@
-import { createSessionKey, normalizeSessionKey, type SessionKey } from './sessionKey';
+import { createSessionKey, type SessionKey } from './sessionKey';
 
 type NotificationEntry = {
   projectId: string;
@@ -19,9 +19,10 @@ export function createNotificationManager(
   let sessionOrder: string[] = [];
 
   function addNotification(projectId: string, sessionId: string, requestId: string): boolean {
-    const normalized = normalizeSessionKey(projectId, sessionId);
-    if (!normalized || !requestId) return false;
-    const resolvedRoot = resolveRoot(normalized.projectId, normalized.sessionId);
+    const trimmedProjectId = projectId.trim();
+    const trimmedSessionId = sessionId.trim();
+    if (!trimmedProjectId || !trimmedSessionId || !requestId) return false;
+    const resolvedRoot = resolveRoot(trimmedProjectId, trimmedSessionId);
     const key = createSessionKey(resolvedRoot.projectId, resolvedRoot.sessionId);
     if (!key) return false;
 
@@ -70,9 +71,10 @@ export function createNotificationManager(
   }
 
   function clearSession(projectId: string, sessionId: string): boolean {
-    const normalized = normalizeSessionKey(projectId, sessionId);
-    if (!normalized) return false;
-    const root = resolveRoot(normalized.projectId, normalized.sessionId);
+    const trimmedProjectId = projectId.trim();
+    const trimmedSessionId = sessionId.trim();
+    if (!trimmedProjectId || !trimmedSessionId) return false;
+    const root = resolveRoot(trimmedProjectId, trimmedSessionId);
     const key = createSessionKey(root.projectId, root.sessionId);
     if (!key || !state.has(key)) return false;
 
@@ -107,12 +109,13 @@ export function createNotificationManager(
     const next = new Map<string, NotificationEntry>();
     const order: string[] = [];
     for (const [key, entry] of Object.entries(data)) {
-      const normalized = normalizeSessionKey(entry.projectId, entry.sessionId);
-      if (!normalized || !Array.isArray(entry.requestIds) || entry.requestIds.length === 0)
+      const trimmedProjectId = entry.projectId.trim();
+      const trimmedSessionId = entry.sessionId.trim();
+      if (!trimmedProjectId || !trimmedSessionId || !Array.isArray(entry.requestIds) || entry.requestIds.length === 0)
         continue;
       next.set(key, {
-        projectId: normalized.projectId,
-        sessionId: normalized.sessionId,
+        projectId: trimmedProjectId,
+        sessionId: trimmedSessionId,
         requestIds: new Set(entry.requestIds),
       });
       order.push(key);

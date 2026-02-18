@@ -2,25 +2,43 @@
 
 This document describes the SSE stream shape used by this app. The goal is that this file alone is enough to implement a client parser.
 
-## Event Envelope
+## Endpoints
 
-Each SSE message uses a single `data:` line containing a JSON object:
+### `GET /global/event`
+
+Aggregates events from all project instances into a single stream.
+
+Each SSE `data:` line contains a JSON object:
 
 ```text
-data: {"directory":"/abs/or/relative/path","payload":{"type":"...","properties":{...}}}
+data: {"directory?":"string","payload":{"type":"string","properties":{...}}}
 
 ```
 
-Common envelope fields:
+- `directory` (string) — Workspace directory. Absent for `server.connected` and `server.heartbeat`. Set to `"global"` for `global.disposed`.
+- `payload.type` (string) — Event name.
+- `payload.properties` (object) — Event-specific fields.
 
-- `directory`: workspace directory the event belongs to.
-  - This field can be omitted for server-level events such as `server.connected` and `server.heartbeat`.
-- `payload.type`: event name.
-- `payload.properties`: event-specific object.
+### `GET /event`
+
+Streams events for a single project instance selected by the `?directory=` query parameter or `X-OpenCode-Directory` header.
+
+Each SSE `data:` line contains a JSON object without the `directory`/`payload` wrapper:
+
+```text
+data: {"type":"string","properties":{...}}
+
+```
+
+The server does not use SSE `event:`, `id:`, or `retry:` fields.
 
 ## Event Types
 
-Below lists each `payload.type` and its `properties` fields.
+Below lists each `payload.type` and its `payload.properties`.
+
+Nested objects use inline notation: `time: { created: number }` means `{"time":{"created":123}}` in JSON. Optional fields are marked with `?`.
+
+### Server Lifecycle
 
 - `server.connected`
   - `{}`
@@ -30,17 +48,29 @@ Below lists each `payload.type` and its `properties` fields.
   - `directory: string`
 - `global.disposed`
   - `{}`
+
+### Installation
+
 - `installation.updated`
   - `version: string`
 - `installation.update-available`
   - `version: string`
+
+### IDE
+
 - `ide.installed`
   - `ide: string`
+
+### LSP
+
 - `lsp.client.diagnostics`
   - `serverID: string`
   - `path: string`
 - `lsp.updated`
   - `{}`
+
+### Message
+
 - `message.updated`
   - `info: Message`
 - `message.removed`
@@ -58,27 +88,39 @@ Below lists each `payload.type` and its `properties` fields.
   - `sessionID: string`
   - `messageID: string`
   - `partID: string`
+
+### Permission
+
 - `permission.asked`
   - `id: string`
   - `sessionID: string`
   - `permission: string`
   - `patterns: string[]`
-  - `metadata: object`
+  - `metadata: Record<string, unknown>`
   - `always: string[]`
-  - `tool?.messageID: string`
-  - `tool?.callID: string`
+  - `tool?: { messageID: string; callID: string }`
 - `permission.replied`
   - `sessionID: string`
   - `requestID: string`
-  - `reply: once | always | reject`
+  - `reply: "once" | "always" | "reject"`
 - `permission.updated` (deprecated)
-  - legacy event. Do not use in new clients.
+  - `id: string`
+  - `type: string`
+  - `pattern?: string | string[]`
+  - `sessionID: string`
+  - `messageID: string`
+  - `callID?: string`
+  - `message: string`
+  - `metadata: Record<string, unknown>`
+  - `time: { created: number }`
+
+### Question
+
 - `question.asked`
   - `id: string`
   - `sessionID: string`
   - `questions: QuestionInfo[]`
-  - `tool?.messageID: string`
-  - `tool?.callID: string`
+  - `tool?: { messageID: string; callID: string }`
 - `question.replied`
   - `sessionID: string`
   - `requestID: string`
@@ -86,15 +128,14 @@ Below lists each `payload.type` and its `properties` fields.
 - `question.rejected`
   - `sessionID: string`
   - `requestID: string`
+
+### Session
+
 - `session.status`
   - `sessionID: string`
-  - `status.type: idle | retry | busy`
-  - `status.attempt?: number`
-  - `status.message?: string`
-  - `status.next?: number`
+  - `status: SessionStatus`
 - `session.idle` (deprecated)
   - `sessionID: string`
-  - legacy compatibility event. Use `session.status` with `status.type = idle`.
 - `session.compacted`
   - `sessionID: string`
 - `session.created`
@@ -108,35 +149,58 @@ Below lists each `payload.type` and its `properties` fields.
   - `diff: FileDiff[]`
 - `session.error`
   - `sessionID?: string`
-  - `error?: ProviderAuthError | UnknownError | MessageOutputLengthError | MessageAbortedError | StructuredOutputError | ContextOverflowError | ApiError`
+  - `error?: ErrorObject`
+
+### File
+
 - `file.edited`
   - `file: string`
 - `file.watcher.updated`
   - `file: string`
-  - `event: add | change | unlink`
+  - `event: "add" | "change" | "unlink"`
+
+### Todo
+
 - `todo.updated`
   - `sessionID: string`
   - `todos: Todo[]`
+
+### Command
+
 - `command.executed`
   - `name: string`
   - `sessionID: string`
   - `arguments: string`
   - `messageID: string`
+
+### Project
+
 - `project.updated`
-  - `ProjectInfo`
-  - `properties` is the `ProjectInfo` object itself (no `info` wrapper).
+  - `properties: ProjectInfo`
+
+### Worktree
+
 - `worktree.ready`
   - `name: string`
   - `branch: string`
 - `worktree.failed`
   - `message: string`
+
+### VCS
+
 - `vcs.branch.updated`
   - `branch?: string`
+
+### MCP
+
 - `mcp.tools.changed`
   - `server: string`
 - `mcp.browser.open.failed`
   - `mcpName: string`
   - `url: string`
+
+### TUI
+
 - `tui.prompt.append`
   - `text: string`
 - `tui.command.execute`
@@ -144,10 +208,13 @@ Below lists each `payload.type` and its `properties` fields.
 - `tui.toast.show`
   - `title?: string`
   - `message: string`
-  - `variant: info | success | warning | error`
+  - `variant: "info" | "success" | "warning" | "error"`
   - `duration?: number`
 - `tui.session.select`
   - `sessionID: string`
+
+### PTY
+
 - `pty.created`
   - `info: Pty`
 - `pty.updated`
@@ -160,9 +227,7 @@ Below lists each `payload.type` and its `properties` fields.
 
 ## Core Payload Shapes
 
-All type names in this section are logical names for documentation.
-
-### Message (Discriminated by `role`)
+### Message (discriminated by `role`)
 
 `Message = UserMessage | AssistantMessage`
 
@@ -171,12 +236,11 @@ All type names in this section are logical names for documentation.
 - `id: string`
 - `sessionID: string`
 - `role: "user"`
-- `time.created: number`
+- `time: { created: number }`
 - `format?: OutputFormat`
 - `summary?: { title?: string; body?: string; diffs: FileDiff[] }`
 - `agent: string`
-- `model.providerID: string`
-- `model.modelID: string`
+- `model: { providerID: string; modelID: string }`
 - `system?: string`
 - `tools?: Record<string, boolean>`
 - `variant?: string`
@@ -186,29 +250,22 @@ All type names in this section are logical names for documentation.
 - `id: string`
 - `sessionID: string`
 - `role: "assistant"`
-- `time.created: number`
-- `time.completed?: number`
-- `error?: ProviderAuthError | UnknownError | MessageOutputLengthError | MessageAbortedError | StructuredOutputError | ContextOverflowError | ApiError`
+- `time: { created: number; completed?: number }`
+- `error?: ErrorObject`
 - `parentID: string`
 - `modelID: string`
 - `providerID: string`
-- `mode: string` (deprecated, kept for compatibility)
+- `mode: string` (deprecated)
 - `agent: string`
-- `path.cwd: string`
-- `path.root: string`
+- `path: { cwd: string; root: string }`
 - `summary?: boolean`
 - `cost: number`
-- `tokens.total?: number`
-- `tokens.input: number`
-- `tokens.output: number`
-- `tokens.reasoning: number`
-- `tokens.cache.read: number`
-- `tokens.cache.write: number`
+- `tokens: { total?: number; input: number; output: number; reasoning: number; cache: { read: number; write: number } }`
 - `structured?: unknown`
 - `variant?: string`
 - `finish?: string`
 
-### OutputFormat
+### OutputFormat (discriminated by `type`)
 
 `OutputFormat = OutputFormatText | OutputFormatJsonSchema`
 
@@ -222,7 +279,7 @@ All type names in this section are logical names for documentation.
 - `schema: Record<string, unknown>`
 - `retryCount: number` (default `2`)
 
-### Part (Discriminated by `type`)
+### Part (discriminated by `type`)
 
 All part variants include:
 
@@ -246,8 +303,7 @@ All part variants include:
 - `type: "reasoning"`
 - `text: string`
 - `metadata?: Record<string, unknown>`
-- `time.start: number`
-- `time.end?: number`
+- `time: { start: number; end?: number }`
 
 `FilePart`
 
@@ -276,12 +332,7 @@ All part variants include:
 - `reason: string`
 - `snapshot?: string`
 - `cost: number`
-- `tokens.total?: number`
-- `tokens.input: number`
-- `tokens.output: number`
-- `tokens.reasoning: number`
-- `tokens.cache.read: number`
-- `tokens.cache.write: number`
+- `tokens: { total?: number; input: number; output: number; reasoning: number; cache: { read: number; write: number } }`
 
 `SnapshotPart`
 
@@ -304,8 +355,8 @@ All part variants include:
 
 - `type: "retry"`
 - `attempt: number`
-- `error: ApiError`
-- `time.created: number`
+- `error: APIError`
+- `time: { created: number }`
 
 `CompactionPart`
 
@@ -321,7 +372,7 @@ All part variants include:
 - `model?: { providerID: string; modelID: string }`
 - `command?: string`
 
-### ToolState (Discriminated by `status`)
+### ToolState (discriminated by `status`)
 
 `ToolState = ToolStatePending | ToolStateRunning | ToolStateCompleted | ToolStateError`
 
@@ -337,7 +388,7 @@ All part variants include:
 - `input: Record<string, unknown>`
 - `title?: string`
 - `metadata?: Record<string, unknown>`
-- `time.start: number`
+- `time: { start: number }`
 
 `ToolStateCompleted`
 
@@ -346,9 +397,7 @@ All part variants include:
 - `output: string`
 - `title: string`
 - `metadata: Record<string, unknown>`
-- `time.start: number`
-- `time.end: number`
-- `time.compacted?: number`
+- `time: { start: number; end: number; compacted?: number }`
 - `attachments?: FilePart[]`
 
 `ToolStateError`
@@ -357,10 +406,9 @@ All part variants include:
 - `input: Record<string, unknown>`
 - `error: string`
 - `metadata?: Record<string, unknown>`
-- `time.start: number`
-- `time.end: number`
+- `time: { start: number; end: number }`
 
-### FilePartSource (Discriminated by `type`)
+### FilePartSource (discriminated by `type`)
 
 `FilePartSource = FileSource | SymbolSource | ResourceSource`
 
@@ -368,9 +416,7 @@ All part variants include:
 
 - `type: "file"`
 - `path: string`
-- `text.value: string`
-- `text.start: number`
-- `text.end: number`
+- `text: { value: string; start: number; end: number }`
 
 `SymbolSource`
 
@@ -378,107 +424,132 @@ All part variants include:
 - `path: string`
 - `name: string`
 - `kind: number`
-- `range.start.line: number`
-- `range.start.character: number`
-- `range.end.line: number`
-- `range.end.character: number`
-- `text.value: string`
-- `text.start: number`
-- `text.end: number`
+- `range: { start: { line: number; character: number }; end: { line: number; character: number } }`
+- `text: { value: string; start: number; end: number }`
 
 `ResourceSource`
 
 - `type: "resource"`
 - `clientName: string`
 - `uri: string`
-- `text.value: string`
-- `text.start: number`
-- `text.end: number`
+- `text: { value: string; start: number; end: number }`
+
+### QuestionInfo
+
+- `question: string`
+- `header: string`
+- `options: QuestionOption[]`
+- `multiple?: boolean`
+- `custom?: boolean` (default `true`)
+
+`QuestionOption`
+
+- `label: string`
+- `description: string`
+
+### SessionStatus (discriminated by `type`)
+
+- `{ type: "idle" }`
+- `{ type: "busy" }`
+- `{ type: "retry"; attempt: number; message: string; next: number }`
 
 ## Other Shared Shapes
 
-`FileDiff`
+### FileDiff
 
 - `file: string`
 - `before: string`
 - `after: string`
 - `additions: number`
 - `deletions: number`
+- `status?: "added" | "deleted" | "modified"`
 
-`Session`
+### Session
 
 - `id: string`
+- `slug: string`
 - `projectID: string`
 - `directory: string`
 - `parentID?: string`
 - `title: string`
 - `version: string`
-- `time.created: number`
-- `time.updated: number`
-- `time.compacting?: number`
-- `summary?.additions: number`
-- `summary?.deletions: number`
-- `summary?.files: number`
-- `summary?.diffs?: FileDiff[]`
-- `share?.url?: string`
-- `revert?.messageID?: string`
-- `revert?.partID?: string`
-- `revert?.snapshot?: string`
-- `revert?.diff?: string`
+- `time: { created: number; updated: number; compacting?: number; archived?: number }`
+- `summary?: { additions: number; deletions: number; files: number; diffs?: FileDiff[] }`
+- `share?: { url: string }`
+- `permission?: PermissionRule[]`
+- `revert?: { messageID: string; partID?: string; snapshot?: string; diff?: string }`
 
-`Todo`
+### PermissionRule
+
+- `permission: string`
+- `pattern: string`
+- `action: "allow" | "deny" | "ask"`
+
+### Todo
 
 - `content: string`
-- `status: pending | in_progress | completed | cancelled`
-- `priority: high | medium | low`
-- `id: string`
+- `status: "pending" | "in_progress" | "completed" | "cancelled"`
+- `priority: "high" | "medium" | "low"`
 
-`Pty`
+### Pty
 
 - `id: string`
 - `title: string`
 - `command: string`
 - `args: string[]`
 - `cwd: string`
-- `status: running | exited`
+- `status: "running" | "exited"`
 - `pid: number`
+
+### ProjectInfo
+
+- `id: string`
+- `worktree: string`
+- `vcs?: "git"`
+- `name?: string`
+- `icon?: { url?: string; override?: string; color?: string }`
+- `commands?: { start?: string }`
+- `time: { created: number; updated: number; initialized?: number }`
+- `sandboxes: string[]`
 
 ## Error Shapes
 
-`ProviderAuthError`
+All errors follow the `{ name: string; data: object }` structure.
+
+### ProviderAuthError
 
 - `name: "ProviderAuthError"`
 - `data.providerID: string`
 - `data.message: string`
 
-`UnknownError`
+### UnknownError
 
 - `name: "UnknownError"`
 - `data.message: string`
 
-`MessageOutputLengthError`
+### MessageOutputLengthError
 
 - `name: "MessageOutputLengthError"`
-- `data: object`
+- `data: {}` (empty object)
 
-`MessageAbortedError`
+### MessageAbortedError
 
 - `name: "MessageAbortedError"`
 - `data.message: string`
 
-`StructuredOutputError`
+### StructuredOutputError
 
 - `name: "StructuredOutputError"`
 - `data.message: string`
 - `data.retries: number`
 
-`ContextOverflowError`
+### ContextOverflowError
 
 - `name: "ContextOverflowError"`
 - `data.message: string`
 - `data.responseBody?: string`
 
-`ApiError`
+### APIError
 
 - `name: "APIError"`
 - `data.message: string`

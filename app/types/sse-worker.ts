@@ -35,11 +35,10 @@ export type TabToWorkerMessage =
       type: 'project.mutated';
       info: ProjectInfo;
     }
-  | {
-      type: 'selection.active';
-      projectId: string;
-      sessionId: string;
-    };
+   | {
+       type: 'selection.active';
+       key: string;
+     };
 
 export type WorkerToTabMessage =
   | {
@@ -75,9 +74,8 @@ export type WorkerToTabMessage =
       type: 'state.notifications-updated';
       notifications: Record<string, WorkerNotificationEntry>;
     }
-  | {
-      type: 'notification.show';
-      projectId: string;
-      sessionId: string;
-      kind: 'permission' | 'question' | 'idle';
-    };
+   | {
+       type: 'notification.show';
+       key: string;
+       kind: 'permission' | 'question' | 'idle';
+     };

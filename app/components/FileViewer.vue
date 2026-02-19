@@ -12,7 +12,7 @@
         {{ basename(tab.file) }}
       </button>
     </div>
-    <div class="viewer-body">
+    <div ref="viewerBodyEl" class="viewer-body">
       <div v-if="showLoading" class="viewer-loading">Loading…</div>
       <CodeContent v-else :html="renderedHtml || rawHtml || ''" :variant="viewerVariant" />
     </div>
@@ -20,7 +20,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import CodeContent from './CodeContent.vue';
 import { type CodeRenderParams, useCodeRender } from '../utils/useCodeRender';
 
@@ -37,9 +37,12 @@ const props = defineProps<{
   diffTabs?: Array<{ file: string; before: string; after: string }>;
   gutterMode?: 'default' | 'none' | 'grep-source';
   theme?: string;
+  line?: number;
+  endLine?: number;
 }>();
 
 const activeTabIndex = ref(0);
+const viewerBodyEl = ref<HTMLDivElement | null>(null);
 
 const hasTabs = computed(() => props.diffTabs && props.diffTabs.length > 1);
 
@@ -125,6 +128,56 @@ const renderParams = computed<CodeRenderParams | null>(() => {
 
 const { html: renderedHtml } = useCodeRender(renderParams);
 
+function clearLineHighlights() {
+  const root = viewerBodyEl.value;
+  if (!root) return;
+  root.querySelectorAll('.code-row.line-highlight').forEach((row) => {
+    row.classList.remove('line-highlight');
+  });
+}
+
+function applyLineSelection() {
+  const root = viewerBodyEl.value;
+  if (!root) return;
+
+  clearLineHighlights();
+
+  const line = props.line;
+  if (!line || !Number.isInteger(line) || line < 1) return;
+
+  const rows = Array.from(root.querySelectorAll<HTMLElement>('.code-row'));
+  if (rows.length === 0) return;
+
+  const start = line;
+  const rawEndLine = props.endLine;
+  const end =
+    rawEndLine && Number.isInteger(rawEndLine) && rawEndLine >= start ? rawEndLine : start;
+  const clampedStart = Math.min(start, rows.length);
+  const clampedEnd = Math.min(Math.max(end, clampedStart), rows.length);
+
+  for (let index = clampedStart - 1; index < clampedEnd; index += 1) {
+    rows[index]?.classList.add('line-highlight');
+  }
+
+  rows[clampedStart - 1]?.scrollIntoView({ block: 'center', inline: 'nearest' });
+}
+
+watch(
+  [
+    () => renderedHtml.value,
+    () => props.rawHtml,
+    () => props.line,
+    () => props.endLine,
+    () => activeTabIndex.value,
+  ],
+  () => {
+    nextTick(() => {
+      applyLineSelection();
+    });
+  },
+  { immediate: true },
+);
+
 const showLoading = computed(() => {
   // Already have displayable content
   if (renderedHtml.value || props.rawHtml) return false;
@@ -191,6 +244,10 @@ function basename(filepath: string) {
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+
+.file-viewer-content :deep(.code-row.line-highlight) {
+  background: rgba(148, 163, 184, 0.15);
 }
 
 .viewer-loading {

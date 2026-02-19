@@ -4530,8 +4530,25 @@ async function handleEditMessage(payload: { sessionId: string; part: MessagePart
   }
 }
 
-async function openFileViewer(path: string) {
-  const key = `file-viewer:${path}`;
+function toFileViewerKey(path: string, line?: number, endLine?: number) {
+  if (!line) return `file-viewer:${path}`;
+  if (endLine && endLine > line) {
+    return `file-viewer:${path}:${line}-${endLine}`;
+  }
+  return `file-viewer:${path}:${line}`;
+}
+
+function toFileViewerTitle(path: string, line?: number, endLine?: number) {
+  const base = resolveWorktreeRelativePath(path) || path;
+  if (!line) return base;
+  if (endLine && endLine > line) {
+    return `${base}:${line}-${endLine}`;
+  }
+  return `${base}:${line}`;
+}
+
+async function openFileViewer(path: string, line?: number, endLine?: number) {
+  const key = toFileViewerKey(path, line, endLine);
   if (fw.has(key)) {
     fw.bringToFront(key);
     return;
@@ -4543,13 +4560,15 @@ async function openFileViewer(path: string) {
     props: {
       path,
       lang,
+      line,
+      endLine,
       gutterMode: 'default',
       theme: shikiTheme.value,
     },
     closable: true,
     resizable: true,
     scroll: 'manual',
-    title: resolveWorktreeRelativePath(path) || path,
+    title: toFileViewerTitle(path, line, endLine),
     x: pos.x,
     y: pos.y,
     width: FILE_VIEWER_WINDOW_WIDTH,
@@ -4563,6 +4582,8 @@ async function openFileViewer(path: string) {
       props: {
         path,
         rawHtml: 'No active directory selected.',
+        line,
+        endLine,
         gutterMode: 'none',
         theme: shikiTheme.value,
       },
@@ -4587,6 +4608,8 @@ async function openFileViewer(path: string) {
             path,
             rawHtml:
               'Binary content is not included in this API response.\nUnable to render hexdump for this file.',
+            line,
+            endLine,
             gutterMode: 'none',
             isBinary: false,
             theme: shikiTheme.value,
@@ -4601,6 +4624,8 @@ async function openFileViewer(path: string) {
         props: {
           path,
           rawHtml: `<pre class="shiki"><code>${dump}</code></pre>`,
+          line,
+          endLine,
           gutterMode: 'none',
           isBinary: true,
           theme: shikiTheme.value,
@@ -4615,6 +4640,8 @@ async function openFileViewer(path: string) {
         path,
         fileContent: textContent,
         lang: resolvedLang,
+        line,
+        endLine,
         gutterMode: 'default',
         isBinary: false,
         theme: shikiTheme.value,
@@ -4625,6 +4652,8 @@ async function openFileViewer(path: string) {
       props: {
         path,
         rawHtml: `File load failed: ${toErrorMessage(error)}`,
+        line,
+        endLine,
         gutterMode: 'none',
         isBinary: false,
         theme: shikiTheme.value,

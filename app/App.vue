@@ -52,6 +52,7 @@
                 @show-thread-history="handleShowThreadHistory"
                 @edit-message="handleEditMessage"
                 @open-image="handleOpenImage"
+                @open-file="openFileViewer"
                 @content-resized="handleOutputPanelContentResized"
                 @initial-render-complete="handleOutputPanelInitialRenderComplete"
               />
@@ -942,7 +943,7 @@ const {
   treeError,
   sessionStatusByPath,
   sessionDiffByPath,
-  loadTreePath,
+  reloadTree,
   refreshSessionDiff,
   toggleTreeDirectory,
   selectTreeFile,
@@ -2290,7 +2291,6 @@ async function bootstrapSelections() {
   } finally {
     isBootstrapping.value = false;
     if (activeDirectory.value) {
-      void loadTreePath('.');
       void refreshSessionDiff();
     }
   }
@@ -3717,7 +3717,6 @@ async function reloadSelectedSessionState() {
     }
     void reloadTodosForAllowedSessions();
     void refreshSessionDiff();
-    void loadTreePath('.');
     const directory = activeDirectory.value || undefined;
     void fetchPendingPermissions(directory);
     void fetchPendingQuestions(directory);
@@ -3803,7 +3802,6 @@ watch(activeDirectory, (directory) => {
   if (activeDirectory.value && activePath !== activeDirectory.value) return;
   void fetchCommands(activePath);
   void reloadTodosForAllowedSessions();
-  void loadTreePath('.');
   void refreshSessionDiff();
 });
 
@@ -5230,7 +5228,6 @@ async function startInitialization() {
       const directory = activeDirectory.value || undefined;
       await fetchPendingPermissions(directory);
       await fetchPendingQuestions(directory);
-      void loadTreePath('.');
       void refreshSessionDiff();
     }
     connectionState.value = 'ready';
@@ -5439,11 +5436,11 @@ onMounted(() => {
         const entries = normalizeSessionDiffEntries(diff);
         const hadAdded = entries.some((entry) => entry.status === 'added');
         updateSessionDiffState(entries);
-        if (hadAdded) void loadTreePath('.');
+        if (hadAdded) void reloadTree();
         return;
       }
       void refreshSessionDiff();
-      void loadTreePath('.');
+      void reloadTree();
     }),
   );
   globalEventUnsubscribers.push(

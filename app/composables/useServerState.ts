@@ -1,6 +1,6 @@
 import { reactive, ref } from 'vue';
 import type { WorkerToTabMessage } from '../types/sse-worker';
-import type { ProjectState, SelectionKey, WorkerNotificationEntry } from '../types/worker-state';
+import type { ProjectState, WorkerNotificationEntry } from '../types/worker-state';
 
 type NotificationShowMessage = Extract<WorkerToTabMessage, { type: 'notification.show' }>;
 
@@ -65,4 +65,3 @@ export function useServerState() {
 }
 
 export type UseServerState = ReturnType<typeof useServerState>;
-export type { SelectionKey };

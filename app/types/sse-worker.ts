@@ -12,7 +12,8 @@ export type TabToWorkerMessage =
     }
   | {
       type: 'selection.active';
-      key: string;
+      projectId: string;
+      sessionId: string;
     }
   | {
       type: 'load-sessions';
@@ -55,6 +56,7 @@ export type WorkerToTabMessage =
     }
   | {
       type: 'notification.show';
-      key: string;
+      projectId: string;
+      sessionId: string;
       kind: 'permission' | 'question' | 'idle';
     };

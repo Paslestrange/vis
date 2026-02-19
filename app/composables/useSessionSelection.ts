@@ -1,6 +1,5 @@
 import { computed, ref, type Ref } from 'vue';
 import type { ProjectState } from '../types/worker-state';
-import { createSessionKey, parseSessionKey } from '../utils/sessionKey';
 import { waitForState } from '../utils/waitForState';
 
 type CreateSessionFn = (projectId: string) => Promise<{ id: string; projectId: string }>;
@@ -38,23 +37,16 @@ export function useSessionSelection(
   projects: Ref<Record<string, ProjectState>>,
   createSessionFn: CreateSessionFn,
 ) {
-  const selectedKey = ref<string>('');
+  const selectedProjectId = ref<string>('');
+  const selectedSessionId = ref<string>('');
 
   const projectMap = computed(() => projects.value);
 
-  const selectedProjectId = computed(() => parseSessionKey(selectedKey.value)?.projectId ?? '');
-  const selectedSessionId = computed(() => parseSessionKey(selectedKey.value)?.sessionId ?? '');
-  const project = computed(() => {
-    const parsed = parseSessionKey(selectedKey.value);
-    if (!parsed) return undefined;
-    return projectMap.value[parsed.projectId];
-  });
+  const project = computed(() => projectMap.value[selectedProjectId.value]);
 
   const activeDirectory = computed(() => {
-    const parsed = parseSessionKey(selectedKey.value);
-    if (!parsed) return '';
-    const currentProject = projectMap.value[parsed.projectId];
-    const sessionId = parsed.sessionId;
+    const currentProject = projectMap.value[selectedProjectId.value];
+    const sessionId = selectedSessionId.value;
     if (!currentProject || !sessionId) return currentProject?.worktree ?? '';
     for (const sandbox of Object.values(currentProject.sandboxes)) {
       if (sandbox.sessions[sessionId]) return sandbox.directory;
@@ -66,18 +58,14 @@ export function useSessionSelection(
 
   async function ensureSession(projectIdHint?: string): Promise<string> {
     const map = projectMap.value;
-    const currentKey = parseSessionKey(selectedKey.value);
-    let projectId = projectIdHint?.trim() || currentKey?.projectId || '';
+    let projectId = projectIdHint?.trim() || selectedProjectId.value.trim();
 
     if (!projectId || !map[projectId]) {
       const recent = findMostRecentSession(map);
       if (recent) {
-        const key = createSessionKey(recent.projectId, recent.sessionId);
-        if (!key) {
-          throw new Error('Failed to build session key from most recent session.');
-        }
-        selectedKey.value = key;
-        return key;
+        selectedProjectId.value = recent.projectId;
+        selectedSessionId.value = recent.sessionId;
+        return recent.sessionId;
       }
       projectId = Object.keys(map)[0] ?? 'global';
     }
@@ -89,21 +77,24 @@ export function useSessionSelection(
     const targetProject = map[projectId];
     const ids = getProjectSessionIds(targetProject);
     if (ids.length > 0) {
-      const key = createSessionKey(projectId, ids[0] ?? '');
-      if (!key) {
-        throw new Error('Failed to build session key from existing session.');
+      const sessionId = ids[0] ?? '';
+      if (!sessionId) {
+        throw new Error('Failed to resolve session id from existing session.');
       }
-      selectedKey.value = key;
-      return key;
+      selectedProjectId.value = projectId;
+      selectedSessionId.value = sessionId;
+      return sessionId;
     }
 
     const created = await createSessionFn(projectId);
-    const key = createSessionKey(created.projectId || projectId, created.id);
-    if (!key) {
-      throw new Error('Failed to build session key for created session.');
+    const createdProjectId = (created.projectId || projectId).trim();
+    const createdSessionId = created.id.trim();
+    if (!createdProjectId || !createdSessionId) {
+      throw new Error('Failed to resolve selection for created session.');
     }
-    selectedKey.value = key;
-    return key;
+    selectedProjectId.value = createdProjectId;
+    selectedSessionId.value = createdSessionId;
+    return createdSessionId;
   }
 
   async function switchSession(projectId: string, sessionId: string) {
@@ -125,16 +116,16 @@ export function useSessionSelection(
       },
     );
 
-    selectedKey.value = createSessionKey(nextProjectId, nextSessionId);
+    selectedProjectId.value = nextProjectId;
+    selectedSessionId.value = nextSessionId;
   }
 
   async function initialize() {
-    if (selectedKey.value && parseSessionKey(selectedKey.value)) return selectedKey.value;
+    if (selectedSessionId.value) return selectedSessionId.value;
     return ensureSession();
   }
 
   return {
-    selectedKey,
     selectedProjectId,
     selectedSessionId,
     project,

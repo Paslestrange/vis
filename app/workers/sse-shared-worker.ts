@@ -18,7 +18,6 @@ import {
   setAuthorization,
   setBaseUrl,
 } from '../utils/opencode';
-import { createSessionKey, parseSessionKey } from '../utils/sessionKey';
 import { createSseConnection, type SseConnection } from '../utils/sseConnection';
 import { createStateBuilder } from '../utils/stateBuilder';
 
@@ -40,7 +39,8 @@ type ConnectionState = {
   bootstrapPromise?: Promise<void>;
   activeSelection: {
     port: MessagePort;
-    key: string;
+    projectId: string;
+    sessionId: string;
   } | null;
 };
 
@@ -594,25 +594,25 @@ function shouldSuppressIdleNotification(
   if (!projectId || !rootSessionId) return false;
   const activeSelection = state.activeSelection;
   if (!activeSelection) return false;
-  const parsed = parseSessionKey(activeSelection.key);
-  if (!parsed) return false;
-  if (parsed.projectId !== projectId) return false;
+  if (activeSelection.projectId !== projectId) return false;
   const activeRootSessionId = state.stateBuilder.resolveRootSessionIdForProject(
     projectId,
-    parsed.sessionId,
+    activeSelection.sessionId,
   );
   return activeRootSessionId === rootSessionId;
 }
 
 function emitNotificationShow(
   state: ConnectionState,
-  key: string,
+  projectId: string,
+  sessionId: string,
   kind: 'permission' | 'question' | 'idle',
 ) {
-  if (!key) return;
+  if (!projectId || !sessionId) return;
   broadcast(state, {
     type: 'notification.show',
-    key,
+    projectId,
+    sessionId,
     kind,
   });
 }
@@ -713,7 +713,7 @@ function handleStatePacket(state: ConnectionState, packet: SsePacket) {
             );
             notificationsChanged = added || notificationsChanged;
             if (added) {
-              emitNotificationShow(state, createSessionKey(statusProjectId, rootSessionId), 'idle');
+              emitNotificationShow(state, statusProjectId, rootSessionId, 'idle');
             }
           }
         }
@@ -740,11 +740,7 @@ function handleStatePacket(state: ConnectionState, packet: SsePacket) {
         );
         notificationsChanged = added || notificationsChanged;
         if (added) {
-          emitNotificationShow(
-            state,
-            createSessionKey(requestProjectId, request.sessionID),
-            'permission',
-          );
+          emitNotificationShow(state, requestProjectId, request.sessionID, 'permission');
         }
       }
       break;
@@ -760,11 +756,7 @@ function handleStatePacket(state: ConnectionState, packet: SsePacket) {
         );
         notificationsChanged = added || notificationsChanged;
         if (added) {
-          emitNotificationShow(
-            state,
-            createSessionKey(requestProjectId, request.sessionID),
-            'question',
-          );
+          emitNotificationShow(state, requestProjectId, request.sessionID, 'question');
         }
       }
       break;
@@ -1004,8 +996,9 @@ function handleMessage(port: MessagePort, event: MessageEvent<TabToWorkerMessage
   }
 
   if (message.type === 'selection.active') {
-    const parsed = parseSessionKey(message.key);
-    if (!parsed) {
+    const projectId = message.projectId.trim();
+    const sessionId = message.sessionId.trim();
+    if (!projectId || !sessionId) {
       if (state.activeSelection?.port === port) {
         state.activeSelection = null;
       }
@@ -1013,14 +1006,12 @@ function handleMessage(port: MessagePort, event: MessageEvent<TabToWorkerMessage
     }
     state.activeSelection = {
       port,
-      key: message.key,
+      projectId,
+      sessionId,
     };
 
-    const rootSessionId = state.stateBuilder.resolveRootSessionIdForProject(
-      parsed.projectId,
-      parsed.sessionId,
-    );
-    const idleRequestId = `idle:${parsed.projectId}:${rootSessionId || parsed.sessionId}`;
+    const rootSessionId = state.stateBuilder.resolveRootSessionIdForProject(projectId, sessionId);
+    const idleRequestId = `idle:${projectId}:${rootSessionId || sessionId}`;
     const cleared = state.notificationManager.removeNotification(idleRequestId);
     if (cleared) {
       emitNotificationsUpdated(state);

@@ -1,4 +1,7 @@
-import { createSessionKey, type SessionKey } from './sessionKey';
+type SessionKey = {
+  projectId: string;
+  sessionId: string;
+};
 
 type NotificationEntry = {
   projectId: string;
@@ -23,7 +26,7 @@ export function createNotificationManager(
     const trimmedSessionId = sessionId.trim();
     if (!trimmedProjectId || !trimmedSessionId || !requestId) return false;
     const resolvedRoot = resolveRoot(trimmedProjectId, trimmedSessionId);
-    const key = createSessionKey(resolvedRoot.projectId, resolvedRoot.sessionId);
+    const key = resolvedRoot.sessionId.trim();
     if (!key) return false;
 
     const existing = state.get(key);
@@ -75,7 +78,7 @@ export function createNotificationManager(
     const trimmedSessionId = sessionId.trim();
     if (!trimmedProjectId || !trimmedSessionId) return false;
     const root = resolveRoot(trimmedProjectId, trimmedSessionId);
-    const key = createSessionKey(root.projectId, root.sessionId);
+    const key = root.sessionId.trim();
     if (!key || !state.has(key)) return false;
 
     const next = new Map(state);

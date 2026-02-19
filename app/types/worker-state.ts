@@ -79,9 +79,3 @@ export type WorkerNotificationEntry = {
 };
 
 export type NotificationState = Record<string, WorkerNotificationEntry>;
-
-/**
- * Selection key for identifying a specific session.
- * Used to track the currently selected session in the UI.
- */
-export type SelectionKey = string;

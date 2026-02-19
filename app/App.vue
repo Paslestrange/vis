@@ -285,6 +285,7 @@ import { useTodos, type TodoItem } from './composables/useTodos';
 import { useDeltaAccumulator } from './composables/useDeltaAccumulator';
 import { useGlobalEvents } from './composables/useGlobalEvents';
 import { useMessages } from './composables/useMessages';
+import { useOpenCodeApi } from './composables/useOpenCodeApi';
 import { useReasoningWindows } from './composables/useReasoningWindows';
 import { useServerState } from './composables/useServerState';
 import { useSessionSelection } from './composables/useSessionSelection';
@@ -499,6 +500,8 @@ type ProjectInfo = {
 
 type SessionInfo = {
   id: string;
+  projectID?: string;
+  projectId?: string;
   parentID?: string;
   title?: string;
   slug?: string;
@@ -605,16 +608,16 @@ const providersFetchCount = ref(0);
 const agentsLoading = ref(false);
 const commandsLoading = ref(false);
 const serverState = useServerState();
+const openCodeApi = useOpenCodeApi(serverState.projects);
 const bootstrapReady = serverState.bootstrapped;
 const sessionSelection = useSessionSelection(
   computed(() => serverState.projects),
   async (projectId) => {
     const directory = serverState.projects[projectId]?.worktree?.trim() || undefined;
-    const created = (await opencodeApi.createSession(directory)) as SessionInfo;
+    const created = (await openCodeApi.createSession(directory, projectId)) as SessionInfo;
     if (!created?.id) {
       throw new Error('Session create failed: invalid response.');
     }
-    serverState.notifySessionMutated(created);
     return { id: created.id, projectId: projectId };
   },
 );
@@ -787,6 +790,9 @@ const statusText = computed(() => {
   if (retryStatus.value) {
     const timeStr = formatRetryTime(retryStatus.value.next);
     return `${retryStatus.value.message} | Next: ${timeStr}`;
+  }
+  if (openCodeApi.pending.value) {
+    return 'Synchronizing with SSE updates...';
   }
   return projectError.value || worktreeError.value || sessionError.value || sendStatus.value;
 });
@@ -1937,17 +1943,12 @@ async function handleSaveProject(payload: {
   commands: { start: string };
 }) {
   try {
-    const result = await opencodeApi.updateProject(payload.projectId, {
+    await openCodeApi.updateProject(payload.projectId, {
       directory: payload.worktree,
       name: payload.name,
       icon: payload.icon,
       commands: payload.commands,
     });
-    if (result && typeof result === 'object') {
-      serverState.notifyProjectMutated(
-        result as Parameters<typeof serverState.notifyProjectMutated>[0],
-      );
-    }
     editingProject.value = null;
   } catch (error) {
     console.error('Failed to update project:', error);
@@ -1965,7 +1966,7 @@ async function listSessionsByDirectory(
 ) {
   sessionError.value = '';
   try {
-    const data = (await opencodeApi.listSessions(options)) as SessionInfo[];
+    const data = (await openCodeApi.listSessions(options)) as SessionInfo[];
     return Array.isArray(data) ? data : [];
   } catch (error) {
     const message = `Session load failed: ${toErrorMessage(error)}`;
@@ -1975,13 +1976,12 @@ async function listSessionsByDirectory(
 }
 
 async function createSessionInDirectory(directory: string, worktreeHint?: string) {
-  const session = (await opencodeApi.createSession(directory)) as SessionInfo;
-  if (!session?.id) return undefined;
-  serverState.notifySessionMutated(session);
   const projectId =
     resolveProjectIdForDirectory(directory) ||
     resolveProjectIdForDirectory(worktreeHint) ||
     selectedProjectId.value;
+  const session = (await openCodeApi.createSession(directory, projectId)) as SessionInfo;
+  if (!session?.id) return undefined;
   await switchSessionSelection(projectId, session.id);
   return session;
 }
@@ -1994,7 +1994,10 @@ async function createWorktreeFromWorktree(worktree: string) {
     return;
   }
   try {
-    const data = (await opencodeApi.createWorktree(worktree)) as WorktreeInfo;
+    const data = (await openCodeApi.createWorktree({
+      directory: worktree,
+      projectId: selectedProjectId.value,
+    })) as WorktreeInfo;
     if (data && typeof data.directory === 'string') {
       await createSessionInDirectory(data.directory, worktree);
     }
@@ -2015,7 +2018,11 @@ async function deleteWorktree(directory: string) {
   const targetDir = directory.replace(/\/+$/, '');
   if (baseDir && targetDir === baseDir) return;
   try {
-    await opencodeApi.deleteWorktree(projectDirectory.value, targetDir);
+    await openCodeApi.deleteWorktree({
+      directory: projectDirectory.value,
+      targetDirectory: targetDir,
+      projectId: selectedProjectId.value,
+    });
     if (normalizeDirectory(activeDirectory.value) === targetDir) {
       const projectId = selectedProjectId.value.trim();
       const candidates = (sessionsByProject.value[projectId] ?? []).filter((session) => {
@@ -2043,11 +2050,13 @@ async function createNewSession(): Promise<SessionInfo | undefined> {
   if (!ensureConnectionReady('Creating session')) return undefined;
   sessionError.value = '';
   try {
-    const data = (await opencodeApi.createSession(
+    const projectId =
+      resolveProjectIdForDirectory(activeDirectory.value) || selectedProjectId.value;
+    const data = (await openCodeApi.createSession(
       activeDirectory.value || undefined,
+      projectId,
     )) as SessionInfo;
     if (data && typeof data.id === 'string') {
-      serverState.notifySessionMutated(data);
       const nextProjectId =
         resolveProjectIdForDirectory(data.directory || activeDirectory.value) ||
         selectedProjectId.value;
@@ -2105,11 +2114,14 @@ async function deleteSession(sessionId: string) {
   if (!sessionId) return;
   try {
     const directory = activeDirectory.value.trim();
-    await opencodeApi.deleteSession(sessionId, directory || undefined);
+    await openCodeApi.deleteSession({
+      sessionId,
+      projectId: selectedProjectId.value,
+      directory: directory || undefined,
+    });
     notificationSessionOrder.value = notificationSessionOrder.value.filter(
       (notificationKey) => notificationKey !== createSessionKey(selectedProjectId.value, sessionId),
     );
-    serverState.notifySessionRemoved(sessionId, selectedProjectId.value || undefined);
     if (selectedSessionId.value === sessionId) {
       const projectId = selectedProjectId.value.trim();
       const candidates = filteredSessions.value.filter(
@@ -2133,14 +2145,11 @@ async function archiveSession(sessionId: string) {
   if (!sessionId) return;
   try {
     const directory = activeDirectory.value.trim();
-    const data = (await opencodeApi.updateSession(
+    await openCodeApi.archiveSession({
       sessionId,
-      { time: { archived: Date.now() } },
-      directory || undefined,
-    )) as SessionInfo;
-    if (data && typeof data.id === 'string') {
-      serverState.notifySessionMutated(data);
-    }
+      projectId: selectedProjectId.value,
+      directory: directory || undefined,
+    });
     if (selectedSessionId.value === sessionId) {
       const projectId = selectedProjectId.value.trim();
       const candidates = filteredSessions.value.filter(
@@ -2163,13 +2172,13 @@ async function handleForkMessage(payload: { sessionId: string; messageId: string
   sessionError.value = '';
   try {
     sendStatus.value = 'Forking...';
-    const data = (await opencodeApi.forkSession(
-      payload.sessionId,
-      payload.messageId,
-      activeDirectory.value.trim() || undefined,
-    )) as SessionInfo;
+    const data = (await openCodeApi.forkSession({
+      sessionId: payload.sessionId,
+      messageId: payload.messageId,
+      directory: activeDirectory.value.trim() || undefined,
+      projectId: selectedProjectId.value,
+    })) as SessionInfo;
     if (data && typeof data.id === 'string') {
-      serverState.notifySessionMutated(data);
       seedForkedSessionComposerDraft(payload, data);
       await switchSessionSelection(selectedProjectId.value, data.id);
     }
@@ -2184,11 +2193,12 @@ async function handleRevertMessage(payload: { sessionId: string; messageId: stri
   sessionError.value = '';
   try {
     sendStatus.value = 'Reverting...';
-    await opencodeApi.revertSession(
-      payload.sessionId,
-      payload.messageId,
-      activeDirectory.value.trim() || undefined,
-    );
+    await openCodeApi.revertSession({
+      sessionId: payload.sessionId,
+      messageId: payload.messageId,
+      projectId: selectedProjectId.value,
+      directory: activeDirectory.value.trim() || undefined,
+    });
     sendStatus.value = 'Reverted.';
     if (selectedSessionId.value === payload.sessionId) reloadSelectedSessionState();
   } catch (error) {
@@ -2213,12 +2223,7 @@ async function initProjectNameFromPackageJson(projectId: string, directory: stri
     const parsed = JSON.parse(decoded);
     const name = parsed?.name;
     if (typeof name !== 'string' || !name.trim()) return;
-    const updated = await opencodeApi.updateProject(projectId, { directory, name: name.trim() });
-    if (updated && typeof updated === 'object') {
-      serverState.notifyProjectMutated(
-        updated as Parameters<typeof serverState.notifyProjectMutated>[0],
-      );
-    }
+    await openCodeApi.updateProject(projectId, { directory, name: name.trim() });
   } catch {
     // Silently ignore - package.json may not exist or be invalid
   }
@@ -2236,9 +2241,6 @@ async function handleProjectDirectorySelect(directory: string) {
     instanceDirectory: directory,
     roots: true,
     limit: ROOT_SESSION_BOOTSTRAP_LIMIT,
-  });
-  list.forEach((session) => {
-    serverState.notifySessionMutated(session);
   });
 
   const roots = list.filter((entry) => !entry.parentID && !entry.time?.archived);
@@ -3867,7 +3869,6 @@ const toolRendererHelpers = {
 
 const ge = useGlobalEvents(credentials);
 ge.setWorkerMessageHandler(serverState.handleStateMessage);
-serverState.setWorkerSender(ge.sendToWorker);
 serverState.setNotificationShowHandler((message) => {
   const parsed = parseSessionKey(message.key);
   if (!parsed) return;

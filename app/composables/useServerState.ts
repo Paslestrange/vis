@@ -1,19 +1,14 @@
 import { reactive, ref } from 'vue';
-import type { TabToWorkerMessage, WorkerToTabMessage } from '../types/sse-worker';
+import type { WorkerToTabMessage } from '../types/sse-worker';
 import type { ProjectState, SelectionKey, WorkerNotificationEntry } from '../types/worker-state';
 
-type SessionMutatedInfo = Extract<TabToWorkerMessage, { type: 'session.mutated' }>['info'];
-type SessionRemovedInfo = Extract<TabToWorkerMessage, { type: 'session.removed' }>;
-type ProjectMutatedInfo = Extract<TabToWorkerMessage, { type: 'project.mutated' }>['info'];
 type NotificationShowMessage = Extract<WorkerToTabMessage, { type: 'notification.show' }>;
-type SendToWorker = (message: TabToWorkerMessage) => boolean;
 
-export function useServerState(initialSender?: SendToWorker) {
+export function useServerState() {
   const projects = reactive<Record<string, ProjectState>>({});
   const notifications = reactive<Record<string, WorkerNotificationEntry>>({});
   const bootstrapped = ref(false);
 
-  let sendToWorker: SendToWorker | undefined = initialSender;
   let onNotificationShow: ((message: NotificationShowMessage) => void) | undefined;
 
   function replaceProjects(next: Record<string, ProjectState>) {
@@ -56,29 +51,8 @@ export function useServerState(initialSender?: SendToWorker) {
     return false;
   }
 
-  function setWorkerSender(sender?: SendToWorker) {
-    sendToWorker = sender;
-  }
-
   function setNotificationShowHandler(handler?: (message: NotificationShowMessage) => void) {
     onNotificationShow = handler;
-  }
-
-  function notifySessionMutated(info: SessionMutatedInfo) {
-    sendToWorker?.({ type: 'session.mutated', info });
-  }
-
-  function notifySessionRemoved(sessionId: string, projectId?: string) {
-    const message: SessionRemovedInfo = {
-      type: 'session.removed',
-      sessionId,
-      projectId,
-    };
-    sendToWorker?.(message);
-  }
-
-  function notifyProjectMutated(info: ProjectMutatedInfo) {
-    sendToWorker?.({ type: 'project.mutated', info });
   }
 
   return {
@@ -86,11 +60,7 @@ export function useServerState(initialSender?: SendToWorker) {
     notifications,
     bootstrapped,
     handleStateMessage,
-    setWorkerSender,
     setNotificationShowHandler,
-    notifySessionMutated,
-    notifySessionRemoved,
-    notifyProjectMutated,
   };
 }
 

@@ -326,7 +326,10 @@ function isQuestionInfo(value: unknown): boolean {
     return false;
   }
 
-  if (!Array.isArray(record.options) || !record.options.every((option) => isQuestionOption(option))) {
+  if (
+    !Array.isArray(record.options) ||
+    !record.options.every((option) => isQuestionOption(option))
+  ) {
     return false;
   }
 
@@ -348,7 +351,10 @@ function isQuestionAskedProperties(value: unknown): value is WorkerStateEventMap
     return false;
   }
 
-  if (!Array.isArray(record.questions) || !record.questions.every((question) => isQuestionInfo(question))) {
+  if (
+    !Array.isArray(record.questions) ||
+    !record.questions.every((question) => isQuestionInfo(question))
+  ) {
     return false;
   }
 
@@ -612,10 +618,7 @@ function emitNotificationShow(
   });
 }
 
-async function resolveUnknownSessionDirectory(
-  state: ConnectionState,
-  info: SessionInfo,
-) {
+async function resolveUnknownSessionDirectory(state: ConnectionState, info: SessionInfo) {
   const directory = normalizeDirectory(info.directory);
   if (!directory) return;
 
@@ -777,7 +780,8 @@ function handleStatePacket(state: ConnectionState, packet: SsePacket) {
     }
     case 'worktree.ready': {
       const readyBranch = parsedPacket.payload.properties.branch;
-      projectId = state.stateBuilder.processVcsBranchUpdated(packetDirectory, readyBranch) || projectId;
+      projectId =
+        state.stateBuilder.processVcsBranchUpdated(packetDirectory, readyBranch) || projectId;
       break;
     }
     default: {
@@ -841,17 +845,14 @@ async function bootstrapState(state: ConnectionState): Promise<void> {
         if (!current) return;
 
         builder.processProjectUpdated({
-            ...current.project,
-            sandboxes: [] as string[],
-          } as Parameters<typeof builder.processProjectUpdated>[0],
-        );
+          ...current.project,
+          sandboxes: [] as string[],
+        } as Parameters<typeof builder.processProjectUpdated>[0]);
         worktreeToProjectId.set(current.worktree, current.projectId);
 
         await syncDirectoryState(directory, current.projectId);
 
-        const sandboxes = asObjectArray<string>(
-          await listWorktrees(directory).catch(() => []),
-        );
+        const sandboxes = asObjectArray<string>(await listWorktrees(directory).catch(() => []));
 
         sandboxes.forEach((directory) => {
           builder.registerSandboxDirectory(current.projectId, directory);
@@ -999,24 +1000,6 @@ function handleMessage(port: MessagePort, event: MessageEvent<TabToWorkerMessage
   if (!key) return;
   const state = connections.get(key);
   if (!state) return;
-
-  if (message.type === 'session.mutated') {
-    const projectId = state.stateBuilder.applySessionMutated(message.info);
-    emitProjectUpdated(state, projectId);
-    return;
-  }
-
-  if (message.type === 'session.removed') {
-    const projectId = state.stateBuilder.applySessionRemoved(message.sessionId, message.projectId);
-    emitProjectUpdated(state, projectId);
-    return;
-  }
-
-  if (message.type === 'project.mutated') {
-    const projectId = state.stateBuilder.processProjectUpdated(message.info);
-    emitProjectUpdated(state, projectId);
-    return;
-  }
 
   if (message.type === 'selection.active') {
     const parsed = parseSessionKey(message.key);

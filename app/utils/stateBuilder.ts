@@ -538,7 +538,6 @@ export function createStateBuilder() {
       if (!sandbox.sessions) sandbox.sessions = {};
     });
 
-
     for (const directory of Object.keys(target.sandboxes)) {
       if (!directories.has(directory)) {
         delete target.sandboxes[directory];

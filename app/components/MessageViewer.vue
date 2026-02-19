@@ -18,6 +18,7 @@ const props = defineProps<{
   lang?: string;
   theme?: string;
   html?: string;
+  files?: string[];
 }>();
 
 const emit = defineEmits<{
@@ -83,6 +84,7 @@ async function startRender() {
     lang,
     theme,
     gutterMode: 'none',
+    files: props.files,
   })
     .then(async (html) => {
       if (current !== state.requestId) return;

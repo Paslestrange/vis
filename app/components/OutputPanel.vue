@@ -34,6 +34,7 @@
                       :code="getMessageContent(root)"
                       :lang="'markdown'"
                       :theme="theme"
+                      :files="filesWithBasenames"
                       @rendered="handleMessageRendered(getThreadUserRenderKey(root))"
                     />
                     <div

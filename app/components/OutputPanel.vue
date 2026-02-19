@@ -8,7 +8,7 @@
         @wheel="$emit('wheel', $event)"
         @touchmove="$emit('touchmove')"
       >
-        <div ref="contentEl" class="output-panel-content">
+        <div ref="contentEl" class="output-panel-content" @click="handleContentClick">
           <div
             v-if="initialRenderTrackingActive"
             class="absolute w-full h-full m-auto flex justify-center items-center"
@@ -30,6 +30,7 @@
                 <div v-if="root.role === 'user'" class="ib-msg-block ib-msg-user">
                   <div class="ib-msg-row">
                     <MessageViewer
+                      :key="`user-${root.id}-${fileCacheVersion}`"
                       :code="getMessageContent(root)"
                       :lang="'markdown'"
                       :theme="theme"
@@ -165,6 +166,17 @@
           >
             <Icon icon="lucide:arrow-down" :width="14" :height="14" />
           </button>
+          <div v-if="filePopup.visible" class="file-ref-popup" :style="filePopup.style">
+            <button
+              v-for="candidate in filePopup.candidates"
+              :key="candidate"
+              type="button"
+              class="file-ref-popup-item"
+              @click.stop="openFileFromPopup(candidate)"
+            >
+              {{ candidate }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -197,6 +209,7 @@ import {
   watchEffect,
 } from 'vue';
 import MessageViewer from './MessageViewer.vue';
+import { useFileTree } from '../composables/useFileTree';
 import { renderWorkerHtml } from '../utils/workerRenderer';
 import { useMessages } from '../composables/useMessages';
 import type { MessageAttachment, MessageTokens, MessageUsage } from '../types/message';
@@ -254,12 +267,32 @@ const emit = defineEmits<{
   (event: 'show-message-diff', payload: { messageKey: string; diffs: DiffEntry[] }): void;
   (event: 'open-image', payload: { url: string; filename: string }): void;
   (event: 'show-thread-history', payload: { entries: HistoryWindowEntry[] }): void;
+  (event: 'open-file', path: string): void;
   (event: 'message-rendered'): void;
   (event: 'content-resized'): void;
   (event: 'initial-render-complete'): void;
 }>();
 
 const visibleRoots = computed(() => msg.roots.value);
+const { files, fileCacheVersion } = useFileTree();
+
+const filesWithBasenames = computed(() => {
+  const merged: string[] = [];
+  for (const path of files.value) {
+    merged.push(path);
+    const basename = path.split('/').at(-1);
+    if (basename && basename !== path) merged.push(basename);
+  }
+  return merged;
+});
+
+function resolveFileRef(ref: string): string[] {
+  if (!ref) return [];
+  if (ref.includes('/')) {
+    return files.value.filter((path) => path === ref);
+  }
+  return files.value.filter((path) => path.split('/').at(-1) === ref);
+}
 
 const cachedThreads = computed(() => {
   const map = new Map<string, MessageInfo[]>();
@@ -670,7 +703,64 @@ const deferredKeyCache = reactive(new Map<string, string>());
 const submitSeqMap = new Map<string, number>();
 const appliedSeqMap = new Map<string, number>();
 // Deduplication
-const lastSubmitted = new Map<string, { answerId: string; content: string; theme: string }>();
+const lastSubmitted = new Map<
+  string,
+  { answerId: string; content: string; theme: string; fileCacheVersion: number }
+>();
+
+const filePopup = reactive({
+  visible: false,
+  candidates: [] as string[],
+  style: {} as Record<string, string>,
+});
+
+function closeFilePopup() {
+  filePopup.visible = false;
+  filePopup.candidates = [];
+}
+
+function showFilePopup(anchorEl: HTMLElement, candidates: string[]) {
+  const rect = anchorEl.getBoundingClientRect();
+  const maxWidth = Math.min(window.innerWidth - 16, 480);
+  const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - maxWidth - 8));
+  const top = Math.min(window.innerHeight - 12, rect.bottom + 6);
+  filePopup.style = {
+    left: `${left}px`,
+    top: `${top}px`,
+    maxWidth: `${maxWidth}px`,
+  };
+  filePopup.candidates = candidates;
+  filePopup.visible = true;
+}
+
+function openFileFromPopup(path: string) {
+  closeFilePopup();
+  emit('open-file', path);
+}
+
+function handleContentClick(event: MouseEvent) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+
+  if (filePopup.visible && !target.closest('.file-ref-popup')) {
+    closeFilePopup();
+  }
+
+  const fileRefEl = target.closest('[data-file-ref]');
+  if (!(fileRefEl instanceof HTMLElement)) return;
+
+  const rawRef = fileRefEl.dataset.fileRef;
+  const ref = rawRef?.trim();
+  if (!ref) return;
+
+  const candidates = resolveFileRef(ref);
+  if (candidates.length === 0) return;
+  if (candidates.length === 1) {
+    emit('open-file', candidates[0]);
+    return;
+  }
+  showFilePopup(fileRefEl, candidates);
+}
 
 function submitAssistantRender(rootId: string, answerId: string, content: string) {
   const seq = (submitSeqMap.get(rootId) ?? 0) + 1;
@@ -683,6 +773,7 @@ function submitAssistantRender(rootId: string, answerId: string, content: string
     lang: 'markdown',
     theme: props.theme,
     gutterMode: 'none',
+    files: filesWithBasenames.value,
   }).then((html) => {
     const applied = appliedSeqMap.get(rootId) ?? 0;
     if (seq <= applied) return;
@@ -703,6 +794,7 @@ function getAssistantHtml(root: MessageInfo): string | undefined {
 
 watchEffect(() => {
   const theme = props.theme;
+  const nextFileCacheVersion = fileCacheVersion.value;
   for (const root of visibleRoots.value) {
     if (!hasAssistantMessages(root)) continue;
     const final = getFinalAnswer(root);
@@ -710,10 +802,21 @@ watchEffect(() => {
     const content = getFinalAnswerContent(root);
 
     const last = lastSubmitted.get(root.id);
-    if (last && last.answerId === answerId && last.content === content && last.theme === theme) {
+    if (
+      last &&
+      last.answerId === answerId &&
+      last.content === content &&
+      last.theme === theme &&
+      last.fileCacheVersion === nextFileCacheVersion
+    ) {
       continue;
     }
-    lastSubmitted.set(root.id, { answerId, content, theme });
+    lastSubmitted.set(root.id, {
+      answerId,
+      content,
+      theme,
+      fileCacheVersion: nextFileCacheVersion,
+    });
     submitAssistantRender(root.id, answerId, content);
   }
 });
@@ -895,6 +998,48 @@ defineExpose({ panelEl });
   flex-direction: column;
   gap: 8px;
   min-height: 100%;
+}
+
+.output-panel-content :deep(.markdown-host code.file-ref) {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(125, 211, 252, 0.4);
+  text-underline-offset: 2px;
+}
+
+.output-panel-content :deep(.markdown-host code.file-ref:hover) {
+  text-decoration-color: #7dd3fc;
+  color: #7dd3fc;
+}
+
+.file-ref-popup {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  background: rgba(15, 23, 42, 0.98);
+  box-shadow: 0 14px 30px rgba(2, 6, 23, 0.5);
+}
+
+.file-ref-popup-item {
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.7);
+  color: #cbd5e1;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.file-ref-popup-item:hover {
+  border-color: #7dd3fc;
+  color: #7dd3fc;
 }
 
 .output-entry-attachments {

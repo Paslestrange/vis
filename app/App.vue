@@ -347,6 +347,7 @@ const TERM_INNER_PADDING_Y_PX = 4;
 const TERM_GUTTER_WIDTH_EM = 3.2;
 const TERM_FONT_FAMILY =
   "'Iosevka Term', 'Iosevka Fixed', 'JetBrains Mono', 'Cascadia Mono', 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace";
+const SHELL_LINGER_MS = 1000;
 const REASONING_CLOSE_DELAY_MS = 3000;
 const SUBAGENT_CLOSE_DELAY_MS = 3000;
 const ATTACHMENT_MIME_ALLOWLIST = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
@@ -380,6 +381,7 @@ type ShellSession = {
   pty: PtyInfo;
   terminal: Terminal;
   socket?: WebSocket;
+  exiting?: boolean;
 };
 
 type Attachment = {
@@ -2903,13 +2905,16 @@ function ensureShellWindow(pty: PtyInfo) {
     pty,
     terminal,
   });
+  // Connect WebSocket immediately so the server's buffer replay arrives
+  // before a fast-exiting command deletes the session.
+  // xterm.js buffers write() calls made before open(), so data is not lost.
+  connectShellSocket(pty.id);
   nextTick(() => {
     const host = toolWindowCanvasEl.value?.querySelector(
       `[data-shell-id="${pty.id}"]`,
     ) as HTMLElement | null;
     if (!host) return;
     terminal.open(host);
-    connectShellSocket(pty.id);
     // Wait for first paint so xterm has rendered cell dimensions
     requestAnimationFrame(() => {
       resizeWindowToFitTerminal(key, terminal, host);
@@ -3093,13 +3098,21 @@ function connectShellSocket(ptyId: string) {
     }
   });
   socket.addEventListener('open', () => {
-    session.terminal.focus();
+    // focus() requires the terminal to be mounted; defer if not yet attached.
+    if (session.terminal.element) {
+      session.terminal.focus();
+    } else {
+      nextTick(() => session.terminal.focus());
+    }
   });
   session.terminal.onData((data) => {
     if (socket.readyState === WebSocket.OPEN) socket.send(data);
   });
   socket.addEventListener('close', () => {
     session.terminal.write('\r\n[disconnected]\r\n');
+    if (session.exiting) {
+      setTimeout(() => removeShellWindow(ptyId), SHELL_LINGER_MS);
+    }
   });
 }
 
@@ -3116,6 +3129,18 @@ function removeShellWindow(ptyId: string, options?: { kill?: boolean }) {
     opencodeApi.deletePty(ptyId, directory).catch((error) => {
       log('PTY delete failed', error);
     });
+  }
+}
+
+function lingerAndRemoveShellWindow(ptyId: string) {
+  const session = shellSessionsByPtyId.get(ptyId);
+  if (!session || session.exiting) return;
+  session.exiting = true;
+  session.terminal.options.cursorBlink = false;
+  // If socket is already closed, start linger timer immediately.
+  // Otherwise the socket 'close' handler starts it after all data is flushed.
+  if (!session.socket || session.socket.readyState >= WebSocket.CLOSING) {
+    setTimeout(() => removeShellWindow(ptyId), SHELL_LINGER_MS);
   }
 }
 
@@ -5195,7 +5220,7 @@ function handlePtyEvent(event: {
   if (!ptyId) return;
   if (!shellSessionsByPtyId.has(ptyId)) return;
   if (event.type === 'pty.exited') {
-    removeShellWindow(ptyId);
+    lingerAndRemoveShellWindow(ptyId);
     return;
   }
   if (event.info) {
@@ -5207,7 +5232,7 @@ function handlePtyEvent(event: {
       }
     }
     if (event.info.status === 'exited') {
-      removeShellWindow(event.info.id);
+      lingerAndRemoveShellWindow(event.info.id);
     }
   }
 }
@@ -5515,7 +5540,7 @@ onMounted(() => {
   );
   globalEventUnsubscribers.push(
     ge.on('pty.deleted', ({ id }) => {
-      removeShellWindow(id);
+      lingerAndRemoveShellWindow(id);
     }),
   );
   globalEventUnsubscribers.push(

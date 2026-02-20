@@ -1191,6 +1191,24 @@ function pickPreferredSessionId(list: SessionInfo[]) {
   return sorted[0]?.id ?? '';
 }
 
+function validateSelectedSession() {
+  const sessionId = selectedSessionId.value.trim();
+  if (!sessionId) return;
+
+  const projectId = selectedProjectId.value.trim();
+  const allSessions = projectId ? (sessionsByProject.value[projectId] ?? []) : [];
+  const current = allSessions.find((session) => session.id === sessionId);
+  if (current && !current.parentID && !current.time?.archived) {
+    return;
+  }
+
+  sessionRevert.value = null;
+  const nextSessionId = pickPreferredSessionId(
+    allSessions.filter((session) => session.id !== sessionId),
+  );
+  selectedSessionId.value = nextSessionId;
+}
+
 function toErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   return String(error);
@@ -2155,22 +2173,6 @@ async function deleteSession(sessionId: string) {
       projectId: selectedProjectId.value,
       directory: directory || undefined,
     });
-    notificationSessionOrder.value = notificationSessionOrder.value.filter(
-      (notificationKey) => notificationKey !== sessionId,
-    );
-    if (selectedSessionId.value === sessionId) {
-      const projectId = selectedProjectId.value.trim();
-      const candidates = filteredSessions.value.filter(
-        (session) => session.id !== sessionId && !session.time?.archived,
-      );
-      const nextSessionId = pickPreferredSessionId(candidates);
-      if (projectId && nextSessionId) {
-        selectedProjectId.value = projectId;
-        selectedSessionId.value = nextSessionId;
-      } else {
-        await createNewSession();
-      }
-    }
   } catch (error) {
     sessionError.value = `Session delete failed: ${toErrorMessage(error)}`;
   }
@@ -2187,19 +2189,6 @@ async function archiveSession(sessionId: string) {
       projectId: selectedProjectId.value,
       directory: directory || undefined,
     });
-    if (selectedSessionId.value === sessionId) {
-      const projectId = selectedProjectId.value.trim();
-      const candidates = filteredSessions.value.filter(
-        (session) => session.id !== sessionId && !session.time?.archived,
-      );
-      const nextSessionId = pickPreferredSessionId(candidates);
-      if (projectId && nextSessionId) {
-        selectedProjectId.value = projectId;
-        selectedSessionId.value = nextSessionId;
-      } else {
-        await createNewSession();
-      }
-    }
   } catch (error) {
     sessionError.value = `Session archive failed: ${toErrorMessage(error)}`;
   }
@@ -3709,22 +3698,14 @@ watch(
   () => {
     if (!bootstrapReady.value && !isBootstrapping.value) return;
     if (isBootstrapping.value) return;
-    if (filteredSessions.value.length === 0) return;
-    const preferredId = pickPreferredSessionId(filteredSessions.value);
     if (!selectedSessionId.value) {
+      const preferredId = pickPreferredSessionId(filteredSessions.value);
       if (preferredId) {
         selectedSessionId.value = preferredId;
       }
       return;
     }
-    const isValid = filteredSessions.value.some(
-      (session) => session.id === selectedSessionId.value,
-    );
-    if (!isValid) {
-      if (preferredId) {
-        selectedSessionId.value = preferredId;
-      }
-    }
+    validateSelectedSession();
   },
   { immediate: true },
 );
@@ -5479,32 +5460,19 @@ onMounted(() => {
   globalEventUnsubscribers.push(
     ge.on('session.updated', ({ info }) => {
       const sessionInfo = info as SessionInfo;
-      if (sessionInfo.id !== selectedSessionId.value) return;
-      sessionRevert.value = normalizeSessionRevert(sessionInfo.revert);
+      if (sessionInfo.id === selectedSessionId.value) {
+        sessionRevert.value = normalizeSessionRevert(sessionInfo.revert);
+      }
+      validateSelectedSession();
     }),
   );
   globalEventUnsubscribers.push(
-    ge.on('session.deleted', async ({ info }) => {
+    ge.on('session.deleted', ({ info }) => {
       const sessionInfo = info as SessionInfo;
-      const projectId = resolveProjectIdForDirectory(sessionInfo.directory);
       notificationSessionOrder.value = notificationSessionOrder.value.filter(
         (notificationKey) => notificationKey !== sessionInfo.id,
       );
-      if (selectedSessionId.value === sessionInfo.id) {
-        sessionRevert.value = null;
-        const nextProjectId = (projectId || selectedProjectId.value).trim();
-        const candidates = (sessionsByProject.value[nextProjectId] ?? []).filter(
-          (session) =>
-            session.id !== sessionInfo.id && !session.parentID && !session.time?.archived,
-        );
-        const nextSessionId = pickPreferredSessionId(candidates);
-        if (nextProjectId && nextSessionId) {
-          selectedProjectId.value = nextProjectId;
-          selectedSessionId.value = nextSessionId;
-        } else if (sessionInfo.directory) {
-          await createSessionInDirectory(sessionInfo.directory);
-        }
-      }
+      validateSelectedSession();
     }),
   );
   globalEventUnsubscribers.push(

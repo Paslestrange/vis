@@ -25,6 +25,7 @@
       >
         <div class="ib-msg-row">
           <MessageViewer
+            class="message-viewer-context-user"
             :key="`user-${root.id}`"
             :code="getMessageContent(root)"
             :lang="'markdown'"
@@ -57,7 +58,7 @@
       <Transition name="ib-fade" mode="out-in">
         <div class="ib-msg-block ib-msg-assistant" :key="deferredTransitionKey">
           <div class="ib-msg-body">
-            <MessageViewer :html="assistantHtml" />
+            <MessageViewer class="message-viewer-context-assistant" :html="assistantHtml" />
           </div>
           <div
             v-if="getMessageAttachments(getFinalAnswer(root)).length > 0"

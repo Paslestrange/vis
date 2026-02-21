@@ -57,13 +57,22 @@ async function handleContentClick(event: MouseEvent) {
   if (!(button instanceof HTMLElement)) return;
 
   const codeBlock = button.closest('.md-code-block');
-  if (!(codeBlock instanceof HTMLElement)) return;
-  const pre = codeBlock.querySelector('pre');
-  if (!pre) return;
+  if (codeBlock instanceof HTMLElement) {
+    const pre = codeBlock.querySelector('pre');
+    if (!pre) return;
+    await navigator.clipboard.writeText(pre.textContent ?? '');
+    codeBlock.classList.add('copied');
+    scheduleCopyButtonReset(codeBlock);
+    return;
+  }
 
-  await navigator.clipboard.writeText(pre.textContent ?? '');
-  codeBlock.classList.add('copied');
-  scheduleCopyButtonReset(codeBlock);
+  const markdownHost = button.closest('.markdown-host');
+  if (!(markdownHost instanceof HTMLElement)) return;
+  const rawSource = markdownHost.querySelector('template.md-raw-source');
+  if (!(rawSource instanceof HTMLTemplateElement)) return;
+  await navigator.clipboard.writeText(rawSource.content.textContent ?? '');
+  markdownHost.classList.add('copied');
+  scheduleCopyButtonReset(markdownHost);
 }
 
 async function startRender() {
@@ -198,6 +207,7 @@ onBeforeUnmount(() => {
 }
 
 .message-content :deep(.markdown-host) {
+  position: relative;
   line-height: 1.2;
   color: inherit;
   overflow-wrap: anywhere;
@@ -421,7 +431,16 @@ onBeforeUnmount(() => {
   opacity: 1;
 }
 
+.message-content :deep(.markdown-host:hover > .md-copy-btn) {
+  opacity: 1;
+}
+
 .message-content :deep(.markdown-host .md-code-block.copied > .md-copy-btn) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.message-content :deep(.markdown-host.copied > .md-copy-btn) {
   opacity: 0;
   pointer-events: none;
 }
@@ -451,5 +470,44 @@ onBeforeUnmount(() => {
 
 .message-content :deep(.markdown-host .md-code-block.copied > .md-copied-indicator) {
   opacity: 1;
+}
+
+.message-content :deep(.markdown-host.copied > .md-copied-indicator) {
+  opacity: 1;
+}
+
+.message-content :deep(.markdown-host > .md-copy-btn),
+.message-content :deep(.markdown-host > .md-copied-indicator) {
+  top: -0.5rem;
+  right: 0;
+  z-index: 2;
+}
+
+.message-viewer.message-viewer-context-user .message-content :deep(.markdown-host > .md-copy-btn),
+.message-viewer.message-viewer-context-user
+  .message-content
+  :deep(.markdown-host > .md-copied-indicator) {
+  top: -6px;
+  right: -4px;
+}
+
+.message-viewer.message-viewer-context-assistant
+  .message-content
+  :deep(.markdown-host > .md-copy-btn),
+.message-viewer.message-viewer-context-assistant
+  .message-content
+  :deep(.markdown-host > .md-copied-indicator) {
+  top: -22px;
+  right: 0;
+}
+
+.message-viewer.message-viewer-context-history
+  .message-content
+  :deep(.markdown-host > .md-copy-btn),
+.message-viewer.message-viewer-context-history
+  .message-content
+  :deep(.markdown-host > .md-copied-indicator) {
+  top: -34px;
+  right: 20ch;
 }
 </style>

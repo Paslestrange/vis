@@ -10,6 +10,7 @@
           </div>
           <div class="history-content-wrapper">
             <MessageViewer
+              class="message-viewer-context-history"
               :code="entry.content"
               :lang="'markdown'"
               :theme="theme"

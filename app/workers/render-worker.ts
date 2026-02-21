@@ -956,7 +956,7 @@ async function renderMarkdownHtml(request: RenderRequest): Promise<string> {
   const env: MarkdownRenderEnv = {};
   if (request.files?.length) env.fileSet = new Set(request.files);
   const rendered = md.render(request.code, env);
-  return `<div class="markdown-host">${rendered}</div>`;
+  return `<div class="markdown-host"><template class="md-raw-source">${escapeHtml(request.code)}</template><button class="md-copy-btn md-copy-btn-host" type="button" aria-label="Copy markdown">COPY</button><div class="md-copied-indicator md-copied-indicator-host" aria-hidden="true">✓ Copied</div>${rendered}</div>`;
 }
 
 function renderRequest(request: RenderRequest): Promise<string> {

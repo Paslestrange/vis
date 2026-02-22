@@ -4716,8 +4716,6 @@ async function openAllGitDiff(mode: WorktreeSnapshotMode = 'all') {
   }
 
   const pos = getFileViewerPosition();
-  const loadingTitle =
-    mode === 'staged' ? 'staged diff' : mode === 'changes' ? 'unstaged diff' : 'working tree diff';
   await fw.open(key, {
     content: 'Loading all changes...',
     lang: 'text',
@@ -4725,7 +4723,7 @@ async function openAllGitDiff(mode: WorktreeSnapshotMode = 'all') {
     closable: true,
     resizable: true,
     scroll: 'manual',
-    title: loadingTitle,
+    title: 'Loading...',
     x: pos.x,
     y: pos.y,
     width: FILE_VIEWER_WINDOW_WIDTH,
@@ -4748,8 +4746,7 @@ async function openAllGitDiff(mode: WorktreeSnapshotMode = 'all') {
 
     const first = snapshot.files[0];
     const title =
-      snapshot.title ||
-      (snapshot.files.length === 1 ? first.file : `${snapshot.files.length} files changed`);
+      snapshot.files.length === 1 ? first.file : `${snapshot.files.length} files changed`;
     const diffTabs =
       snapshot.files.length > 1
         ? snapshot.files.map((entry) => ({

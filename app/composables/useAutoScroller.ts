@@ -308,7 +308,15 @@ export function useAutoScroller(
     lastObservedScrollTop = el.scrollTop;
     el.addEventListener('scroll', onScroll, { passive: true });
     el.addEventListener('scrollend', onScrollEnd, { passive: true });
-    const wheelIntentHandler = () => markUserScrollIntent('wheel');
+    const wheelIntentHandler = (e: WheelEvent) => {
+      markUserScrollIntent('wheel');
+      // Directly unfollow on user scrollback — wheel is a user-only event
+      if (e.deltaY < 0 && scrollMode.value === 'follow' && isFollowing.value) {
+        clearNativeSmoothMonitor();
+        cancelAnimation();
+        isFollowing.value = false;
+      }
+    };
     const touchIntentHandler = () => markUserScrollIntent('touchmove');
     const pointerDownIntentHandler = () => {
       pointerInteracting = true;
@@ -325,7 +333,7 @@ export function useAutoScroller(
     (
       el as HTMLElement & {
         __clearPointerInteraction?: () => void;
-        __wheelIntentHandler?: () => void;
+        __wheelIntentHandler?: (e: WheelEvent) => void;
         __touchIntentHandler?: () => void;
         __pointerDownIntentHandler?: () => void;
       }
@@ -333,7 +341,7 @@ export function useAutoScroller(
     (
       el as HTMLElement & {
         __clearPointerInteraction?: () => void;
-        __wheelIntentHandler?: () => void;
+        __wheelIntentHandler?: (e: WheelEvent) => void;
         __touchIntentHandler?: () => void;
         __pointerDownIntentHandler?: () => void;
       }
@@ -341,7 +349,7 @@ export function useAutoScroller(
     (
       el as HTMLElement & {
         __clearPointerInteraction?: () => void;
-        __wheelIntentHandler?: () => void;
+        __wheelIntentHandler?: (e: WheelEvent) => void;
         __touchIntentHandler?: () => void;
         __pointerDownIntentHandler?: () => void;
       }
@@ -349,7 +357,7 @@ export function useAutoScroller(
     (
       el as HTMLElement & {
         __clearPointerInteraction?: () => void;
-        __wheelIntentHandler?: () => void;
+        __wheelIntentHandler?: (e: WheelEvent) => void;
         __touchIntentHandler?: () => void;
         __pointerDownIntentHandler?: () => void;
       }
@@ -365,7 +373,7 @@ export function useAutoScroller(
     el.removeEventListener('scrollend', onScrollEnd);
     const clearPointerInteraction = (el as HTMLElement & { __clearPointerInteraction?: () => void })
       .__clearPointerInteraction;
-    const wheelIntentHandler = (el as HTMLElement & { __wheelIntentHandler?: () => void })
+    const wheelIntentHandler = (el as HTMLElement & { __wheelIntentHandler?: (e: WheelEvent) => void })
       .__wheelIntentHandler;
     const touchIntentHandler = (el as HTMLElement & { __touchIntentHandler?: () => void })
       .__touchIntentHandler;

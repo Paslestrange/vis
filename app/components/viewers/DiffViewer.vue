@@ -26,25 +26,6 @@
       </button>
     </div>
 
-    <div v-if="showSubTabs" class="viewer-tabs viewer-tabs-sub">
-      <button
-        type="button"
-        class="viewer-tab"
-        :class="{ active: contentMode === 'rendered' }"
-        @click="contentMode = 'rendered'"
-      >
-        Rendered
-      </button>
-      <button
-        type="button"
-        class="viewer-tab"
-        :class="{ active: contentMode === 'source' }"
-        @click="contentMode = 'source'"
-      >
-        Source
-      </button>
-    </div>
-
     <div class="viewer-body">
       <DiffRenderer
         v-if="primaryMode === 'diff'"
@@ -57,20 +38,12 @@
         :theme="theme"
         @rendered="emit('rendered')"
       />
-      <MarkdownRenderer
-        v-else-if="showMarkdownContent"
-        :code="activeText"
-        lang="markdown"
-        :theme="theme"
-        @rendered="emit('rendered')"
-      />
-      <CodeRenderer
+      <ContentViewer
         v-else
         :path="activeFilePath"
         :file-content="activeText"
         :lang="activeLanguage"
         :theme="theme"
-        gutter-mode="default"
         @rendered="emit('rendered')"
       />
     </div>
@@ -80,12 +53,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { guessLanguageFromPath } from '../ToolWindow/utils';
-import CodeRenderer from '../renderers/CodeRenderer.vue';
 import DiffRenderer from '../renderers/DiffRenderer.vue';
-import MarkdownRenderer from '../renderers/MarkdownRenderer.vue';
+import ContentViewer from './ContentViewer.vue';
 
 type PrimaryMode = 'original' | 'modified' | 'diff';
-type ContentMode = 'rendered' | 'source';
 
 const props = defineProps<{
   path?: string;
@@ -104,7 +75,6 @@ const emit = defineEmits<{
 
 const activeFileIndex = ref(0);
 const primaryMode = ref<PrimaryMode>('diff');
-const contentMode = ref<ContentMode>('rendered');
 
 const hasFileTabs = computed(() => !!props.diffTabs && props.diffTabs.length > 1);
 const hasBeforeAfter = computed(() => {
@@ -156,15 +126,6 @@ const activeText = computed(() => {
 });
 
 const activeLanguage = computed(() => guessLanguageFromPath(activeFilePath.value));
-const isMarkdownFile = computed(() => activeLanguage.value === 'markdown');
-const showSubTabs = computed(() => {
-  if (primaryMode.value === 'diff') return false;
-  return isMarkdownFile.value;
-});
-const showMarkdownContent = computed(() => {
-  if (primaryMode.value === 'diff') return false;
-  return isMarkdownFile.value && contentMode.value === 'rendered';
-});
 
 const diffGutterMode = computed<'none' | 'double'>(() => props.gutterMode ?? 'double');
 
@@ -189,10 +150,6 @@ function basename(filepath: string) {
   overflow-x: auto;
   scrollbar-width: none;
   flex-shrink: 0;
-}
-
-.viewer-tabs-sub {
-  background: rgba(20, 24, 30, 0.95);
 }
 
 .viewer-tabs::-webkit-scrollbar {

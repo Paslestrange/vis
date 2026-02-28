@@ -91,7 +91,10 @@ export function createSseConnection(callbacks: SseConnectionCallbacks): SseConne
           for (const block of blocks) {
             if (!block.trim()) continue;
             const prefix = 'data: ';
-            if (!block.startsWith(prefix)) continue;
+            if (!block.startsWith(prefix)) {
+              console.warn('Invalid SSE packet?', block);
+              continue;
+            }
             const packet = parsePacket(block.slice(prefix.length));
             if (packet) callbacks.onPacket(packet);
           }
@@ -116,7 +119,9 @@ export function createSseConnection(callbacks: SseConnectionCallbacks): SseConne
 
   function startFetch(options: SseConnectionOptions, isReconnect: boolean) {
     const effectiveBaseUrl = normalizeBaseUrl(options.baseUrl);
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = {
+      Accept: 'text/event-stream',
+    };
     if (options.authorization) {
       headers['Authorization'] = options.authorization;
     }

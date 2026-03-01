@@ -1595,7 +1595,7 @@ function persistSidePanelCollapsed(value: boolean) {
 
 function readSidePanelTab(): 'todo' | 'tree' {
   const raw = storageGet(StorageKeys.state.sidePanelTab);
-  return raw === 'tree' ? 'tree' : 'todo';
+  return raw === 'todo' ? 'todo' : 'tree';
 }
 
 function persistSidePanelTab(value: 'todo' | 'tree') {
@@ -5732,7 +5732,7 @@ onBeforeUnmount(() => {
   align-items: stretch;
   gap: var(--todo-panel-gap);
   --todo-panel-gap: 10px;
-  --todo-panel-open-width: clamp(220px, 24vw, 320px);
+  --todo-panel-open-width: clamp(260px, 26vw, 380px);
   --todo-panel-collapsed-width: 30px;
   --todo-panel-width: var(--todo-panel-open-width);
 }

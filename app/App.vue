@@ -26,121 +26,128 @@
           @dropdown-closed="focusInput"
         />
       </header>
-      <main ref="outputEl" class="app-output">
-        <div class="output-workspace">
-          <div class="tool-window-layer" :class="{ 'todo-collapsed': sidePanelCollapsed }">
-            <div class="output-split" :class="{ 'todo-collapsed': sidePanelCollapsed }">
-              <OutputPanel
-                ref="outputPanelRef"
-                :key="selectedSessionId"
-                class="output-panel"
-                :project-name="currentProjectName"
-                :project-color="currentProjectColor"
-                :is-following="isFollowing"
-                :status-text="statusText"
-                :is-status-error="isStatusError"
-                :is-thinking="isThinking"
-                :is-retry-status="!!retryStatus"
-                :busy-descendant-count="busyDescendantSessionIds.length"
-                :theme="shikiTheme"
-                :resolve-agent-color="resolveAgentColorForName"
-                :resolve-model-meta="resolveModelMetaForPath"
-                :compute-context-percent="computeContextPercent"
-                :session-revert="sessionRevert"
-                @message-rendered="handleOutputPanelMessageRendered"
-                @resume-follow="handleOutputPanelResumeFollow"
-                @fork-message="handleForkMessage"
-                @revert-message="handleRevertMessage"
-                @undo-revert="handleUndoRevert"
-                @show-message-diff="handleShowMessageDiff"
-                @show-commit="handleShowCommit"
-                @show-thread-history="handleShowThreadHistory"
-                @edit-message="handleEditMessage"
-                @open-image="handleOpenImage"
-                @open-file="openFileViewer"
-                @content-resized="handleOutputPanelContentResized"
-                @initial-render-complete="handleOutputPanelInitialRenderComplete"
-              />
-              <SidePanel
-                class="todo-panel"
-                :class="{ 'is-disabled': !hasSession }"
-                :collapsed="sidePanelCollapsed"
-                :active-tab="sidePanelActiveTab"
-                :todo-sessions="todoPanelSessions"
-                :tree-nodes="treeNodes"
-                :expanded-tree-paths="expandedTreePaths"
-                :selected-tree-path="selectedTreePath"
-                :tree-loading="treeLoading"
-                :tree-error="treeError"
-                :tree-status-by-path="gitStatusByPath"
-                :tree-branch-info="gitStatus?.branch"
-                :tree-diff-stats="gitStatus?.diffStats"
-                :tree-directory-name="treeDirectoryName"
-                @toggle-collapse="toggleSidePanelCollapsed"
-                @change-tab="setSidePanelTab"
-                @toggle-dir="toggleTreeDirectory"
-                @select-file="selectTreeFile"
-                @open-diff="openGitDiff"
-                @open-diff-all="
-                  (payload: { mode: WorktreeSnapshotMode }) => openAllGitDiff(payload.mode)
-                "
-                @open-file="openFileViewer"
-              />
-            </div>
-            <div ref="toolWindowCanvasEl" class="tool-window-canvas">
-              <TransitionGroup appear name="scale">
-                <FloatingWindow
-                  v-for="entry in fw.entries.value"
-                  :key="entry.key"
-                  :entry="entry"
-                  :manager="fw"
-                  @focus="fw.bringToFront(entry.key)"
-                  @close="handleFloatingWindowClose(entry.key)"
-                />
-              </TransitionGroup>
-            </div>
-          </div>
+      <div ref="appBodyEl" class="app-body" :class="{ 'todo-collapsed': sidePanelCollapsed }" :style="sidePanelWidth !== null ? { '--todo-panel-width': `${sidePanelWidth}px` } as any : undefined">
+        <div ref="sidePanelAreaEl" class="side-panel-area">
+          <SidePanel
+            class="todo-panel"
+            :class="{ 'is-disabled': !hasSession }"
+            :collapsed="sidePanelCollapsed"
+            :active-tab="sidePanelActiveTab"
+            :todo-sessions="todoPanelSessions"
+            :tree-nodes="treeNodes"
+            :expanded-tree-paths="expandedTreePaths"
+            :selected-tree-path="selectedTreePath"
+            :tree-loading="treeLoading"
+            :tree-error="treeError"
+            :tree-status-by-path="gitStatusByPath"
+            :tree-branch-info="gitStatus?.branch"
+            :tree-diff-stats="gitStatus?.diffStats"
+            :tree-directory-name="treeDirectoryName"
+            @toggle-collapse="toggleSidePanelCollapsed"
+            @change-tab="setSidePanelTab"
+            @toggle-dir="toggleTreeDirectory"
+            @select-file="selectTreeFile"
+            @open-diff="openGitDiff"
+            @open-diff-all="
+              (payload: { mode: WorktreeSnapshotMode }) => openAllGitDiff(payload.mode)
+            "
+            @open-file="openFileViewer"
+          />
+          <div v-if="!sidePanelCollapsed" class="side-resizer" @pointerdown="startSidePanelResize"></div>
         </div>
-      </main>
-      <footer
-        ref="inputEl"
-        class="app-input"
-        :class="{ 'is-disabled': !hasSession }"
-        :style="inputHeight !== null ? { height: `${inputHeight}px` } : undefined"
-      >
-        <div class="input-resizer" @pointerdown="startInputResize"></div>
-        <InputPanel
-          ref="inputPanelRef"
-          :disabled="connectionState !== 'ready'"
-          :can-send="canSend"
-          :agent-options="agentOptions"
-          :has-agent-options="hasAgentOptions"
-          :agent-color="currentAgentColor"
-          :resolve-agent-color="resolveAgentColorForName"
-          :model-options="modelOptions"
-          :thinking-options="thinkingOptions"
-          :has-model-options="hasModelOptions"
-          :has-thinking-options="hasThinkingOptions"
-          :can-attach="canAttach"
-          :is-thinking="isThinking"
-          :can-abort="canAbort"
-          :commands="commandOptions"
-          :attachments="attachments"
-          :message-input="messageInput"
-          :selected-mode="selectedMode"
-          :selected-model="selectedModel"
-          :selected-thinking="selectedThinking"
-          @update:message-input="handleMessageInputUpdate"
-          @update:selected-mode="handleSelectedModeUpdate"
-          @update:selected-model="handleSelectedModelUpdate"
-          @update:selected-thinking="handleSelectedThinkingUpdate"
-          @send="sendMessage"
-          @abort="abortSession"
-          @add-attachments="handleAddAttachments"
-          @remove-attachment="removeAttachment"
-          @open-image="handleOpenImage"
-        />
-      </footer>
+        <div class="app-main-column">
+          <main ref="outputEl" class="app-output">
+            <div class="output-workspace">
+              <div class="tool-window-layer">
+                <div class="output-split">
+                  <OutputPanel
+                    ref="outputPanelRef"
+                    :key="selectedSessionId"
+                    class="output-panel"
+                    :project-name="currentProjectName"
+                    :project-color="currentProjectColor"
+                    :is-following="isFollowing"
+                    :status-text="statusText"
+                    :is-status-error="isStatusError"
+                    :is-thinking="isThinking"
+                    :is-retry-status="!!retryStatus"
+                    :busy-descendant-count="busyDescendantSessionIds.length"
+                    :theme="shikiTheme"
+                    :resolve-agent-color="resolveAgentColorForName"
+                    :resolve-model-meta="resolveModelMetaForPath"
+                    :compute-context-percent="computeContextPercent"
+                    :session-revert="sessionRevert"
+                    @message-rendered="handleOutputPanelMessageRendered"
+                    @resume-follow="handleOutputPanelResumeFollow"
+                    @fork-message="handleForkMessage"
+                    @revert-message="handleRevertMessage"
+                    @undo-revert="handleUndoRevert"
+                    @show-message-diff="handleShowMessageDiff"
+                    @show-commit="handleShowCommit"
+                    @show-thread-history="handleShowThreadHistory"
+                    @edit-message="handleEditMessage"
+                    @open-image="handleOpenImage"
+                    @open-file="openFileViewer"
+                    @content-resized="handleOutputPanelContentResized"
+                    @initial-render-complete="handleOutputPanelInitialRenderComplete"
+                  />
+                </div>
+                <div ref="toolWindowCanvasEl" class="tool-window-canvas">
+                  <TransitionGroup appear name="scale">
+                    <FloatingWindow
+                      v-for="entry in fw.entries.value"
+                      :key="entry.key"
+                      :entry="entry"
+                      :manager="fw"
+                      @focus="fw.bringToFront(entry.key)"
+                      @close="handleFloatingWindowClose(entry.key)"
+                    />
+                  </TransitionGroup>
+                </div>
+              </div>
+            </div>
+          </main>
+          <footer
+            ref="inputEl"
+            class="app-input"
+            :class="{ 'is-disabled': !hasSession }"
+            :style="inputHeight !== null ? { height: `${inputHeight}px` } : undefined"
+          >
+            <div class="input-resizer" @pointerdown="startInputResize"></div>
+            <InputPanel
+              ref="inputPanelRef"
+              :disabled="connectionState !== 'ready'"
+              :can-send="canSend"
+              :agent-options="agentOptions"
+              :has-agent-options="hasAgentOptions"
+              :agent-color="currentAgentColor"
+              :resolve-agent-color="resolveAgentColorForName"
+              :model-options="modelOptions"
+              :thinking-options="thinkingOptions"
+              :has-model-options="hasModelOptions"
+              :has-thinking-options="hasThinkingOptions"
+              :can-attach="canAttach"
+              :is-thinking="isThinking"
+              :can-abort="canAbort"
+              :commands="commandOptions"
+              :attachments="attachments"
+              :message-input="messageInput"
+              :selected-mode="selectedMode"
+              :selected-model="selectedModel"
+              :selected-thinking="selectedThinking"
+              @update:message-input="handleMessageInputUpdate"
+              @update:selected-mode="handleSelectedModeUpdate"
+              @update:selected-model="handleSelectedModelUpdate"
+              @update:selected-thinking="handleSelectedThinkingUpdate"
+              @send="sendMessage"
+              @abort="abortSession"
+              @add-attachments="handleAddAttachments"
+              @remove-attachment="removeAttachment"
+              @open-image="handleOpenImage"
+            />
+          </footer>
+        </div>
+      </div>
     </template>
     <div v-else class="app-loading-view" role="status" aria-live="polite">
       <div class="app-loading-card">
@@ -659,6 +666,15 @@ const inputResizeState = ref<{
   maxHeight: number;
 } | null>(null);
 const inputHeight = ref<number | null>(null);
+const sidePanelResizeState = ref<{
+  startX: number;
+  startWidth: number;
+  minWidth: number;
+  maxWidth: number;
+} | null>(null);
+const sidePanelWidth = ref<number | null>(null);
+const appBodyEl = ref<HTMLDivElement | null>(null);
+const sidePanelAreaEl = ref<HTMLDivElement | null>(null);
 let primaryHistoryRequestId = 0;
 const recentUserInputs: { text: string; time: number }[] = [];
 const composerDraftRevisionByContext = new Map<string, number>();
@@ -1564,6 +1580,7 @@ function persistSidePanelTab(value: 'todo' | 'tree') {
 
 function toggleSidePanelCollapsed() {
   sidePanelCollapsed.value = !sidePanelCollapsed.value;
+  sidePanelWidth.value = null;
   persistSidePanelCollapsed(sidePanelCollapsed.value);
   nextTick(() => {
     syncFloatingExtent();
@@ -2063,7 +2080,38 @@ function startInputResize(event: PointerEvent) {
   event.preventDefault();
 }
 
+function startSidePanelResize(event: PointerEvent) {
+  if (event.button !== 0) return;
+  const body = appBodyEl.value;
+  const panel = sidePanelAreaEl.value;
+  if (!body || !panel) return;
+  const bodyRect = body.getBoundingClientRect();
+  const panelRect = panel.getBoundingClientRect();
+  const style = getComputedStyle(body);
+  const gap = parseFloat(style.getPropertyValue('--todo-panel-gap')) || 10;
+  const currentWidth = panelRect.width;
+  const minW = 160;
+  const maxW = Math.max(minW, bodyRect.width * 0.5 - gap);
+  sidePanelResizeState.value = {
+    startX: event.clientX,
+    startWidth: currentWidth,
+    minWidth: minW,
+    maxWidth: maxW,
+  };
+  sidePanelWidth.value = currentWidth;
+  (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+}
+
 function handlePointerMove(event: PointerEvent) {
+  if (sidePanelResizeState.value) {
+    const { startX, startWidth, minWidth, maxWidth } = sidePanelResizeState.value;
+    const dx = event.clientX - startX;
+    sidePanelWidth.value = clamp(startWidth + dx, minWidth, maxWidth);
+    syncFloatingExtent();
+    scheduleShellFitAll();
+    return;
+  }
   if (inputResizeState.value) {
     const { startY, startHeight, minHeight, maxHeight } = inputResizeState.value;
     const dy = event.clientY - startY;
@@ -2077,6 +2125,8 @@ function handlePointerMove(event: PointerEvent) {
 function handlePointerUp() {
   if (inputResizeState.value) scheduleShellFitAll();
   inputResizeState.value = null;
+  if (sidePanelResizeState.value) scheduleShellFitAll();
+  sidePanelResizeState.value = null;
 }
 
 function resolveProjectIdForDirectory(directory?: string) {
@@ -5598,14 +5648,6 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-height: 0;
   box-sizing: border-box;
-  --todo-panel-gap: 10px;
-  --todo-panel-open-width: clamp(220px, 24vw, 320px);
-  --todo-panel-collapsed-width: 30px;
-  --todo-panel-width: var(--todo-panel-open-width);
-}
-
-.tool-window-layer.todo-collapsed {
-  --todo-panel-width: var(--todo-panel-collapsed-width);
 }
 
 .output-split {
@@ -5613,16 +5655,74 @@ onBeforeUnmount(() => {
   z-index: 10;
   display: flex;
   align-items: stretch;
-  gap: var(--todo-panel-gap);
   width: 100%;
   height: 100%;
   min-height: 0;
 }
 
-.todo-panel {
+.app-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  gap: var(--todo-panel-gap);
+  --todo-panel-gap: 10px;
+  --todo-panel-open-width: clamp(220px, 24vw, 320px);
+  --todo-panel-collapsed-width: 30px;
+  --todo-panel-width: var(--todo-panel-open-width);
+}
+
+.app-body.todo-collapsed {
+  --todo-panel-width: var(--todo-panel-collapsed-width);
+}
+
+.app-main-column {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.side-panel-area {
+  position: relative;
   flex: 0 0 var(--todo-panel-width);
   width: var(--todo-panel-width);
   min-height: 0;
+}
+
+.todo-panel {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.side-resizer {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  right: -7px;
+  width: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ew-resize;
+  z-index: 40;
+  touch-action: none;
+}
+
+.side-resizer::before {
+  content: '';
+  width: 3px;
+  height: 44px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.6);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.6);
+}
+
+.side-resizer:hover::before {
+  background: rgba(226, 232, 240, 0.7);
 }
 
 .is-disabled {

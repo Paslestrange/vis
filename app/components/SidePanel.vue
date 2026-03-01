@@ -8,7 +8,7 @@
       aria-label="Expand side panel"
       @click="emit('toggle-collapse')"
     >
-      <Icon icon="lucide:chevron-left" width="14" height="14" />
+      <Icon icon="lucide:chevron-right" width="14" height="14" />
     </button>
     <div v-else class="side-body">
       <div class="side-tabs">
@@ -29,7 +29,7 @@
           aria-label="Collapse side panel"
           @click="emit('toggle-collapse')"
         >
-          <Icon icon="lucide:chevron-right" width="14" height="14" />
+          <Icon icon="lucide:chevron-left" width="14" height="14" />
         </button>
       </div>
       <TodoList v-if="activeTab === 'todo'" :sessions="todoSessions" />

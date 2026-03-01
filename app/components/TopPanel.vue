@@ -871,7 +871,7 @@ function handleOpenDirectory(close: () => void) {
   color: #c4b5fd;
 }
 
-/* Session rows: wrapper provides indentation via :deep() since DropdownItem has inheritAttrs:false */
+/* Session rows: wrapper provides indentation via :deep() */
 .tree-session-row :deep(.ui-dropdown-item) {
   padding-left: 40px;
   border-radius: 0;

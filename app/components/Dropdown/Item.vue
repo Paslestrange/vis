@@ -21,10 +21,6 @@
 import { computed, inject, onMounted, watch } from 'vue';
 import type { DropdownAPI } from '../Dropdown.vue';
 
-defineOptions({
-  inheritAttrs: false,
-});
-
 type Props = {
   value?: unknown;
   disabled?: boolean;

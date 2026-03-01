@@ -90,7 +90,19 @@
               </template>
             </DropdownItem>
             <template v-for="group in filteredRemoteBranchGroups" :key="group.key">
-              <DropdownLabel>{{ group.label }}</DropdownLabel>
+              <DropdownLabel>
+                {{ group.label }}
+                <template #action>
+                  <button
+                    type="button"
+                    class="tree-branch-action-btn tree-branch-fetch-btn"
+                    :title="`git fetch ${group.key}`"
+                    @click.stop="onRemoteFetch(group.key)"
+                  >
+                    <Icon icon="lucide:refresh-cw" :width="12" :height="12" />
+                  </button>
+                </template>
+              </DropdownLabel>
               <DropdownItem
                 v-for="entry in group.entries"
                 :key="entry.refname"
@@ -160,14 +172,14 @@
               </span>
             </button>
           </template>
-          <DropdownItem value="git push">git push</DropdownItem>
+          <DropdownItem value="git push" class="tree-branch-cmd-danger">git push</DropdownItem>
         </Dropdown>
         <Dropdown
           v-if="branchInfo && branchInfo.behind > 0"
           v-model:open="pullMenuOpen"
           class="tree-branch-command-dropdown"
           auto-close
-          :popup-style="{ width: '120px' }"
+          :popup-style="{ minWidth: '220px' }"
           @select="onBranchCommandSelect"
         >
           <template #trigger>
@@ -184,7 +196,28 @@
               </span>
             </button>
           </template>
-          <DropdownItem value="git pull">git pull</DropdownItem>
+          <DropdownItem
+            v-if="branchInfo?.upstream"
+            :value="`git merge --ff-only ${shellQuote(branchInfo.upstream)}`"
+          >
+            git merge --ff-only &lt;upstream&gt;
+          </DropdownItem>
+          <DropdownItem
+            v-if="branchInfo?.upstream"
+            :value="`git merge ${shellQuote(branchInfo.upstream)}`"
+            class="tree-branch-cmd-merge"
+          >
+            <Icon icon="lucide:git-merge" :width="12" :height="12" />
+            git merge &lt;upstream&gt;
+          </DropdownItem>
+          <DropdownItem
+            v-if="branchInfo?.upstream"
+            :value="`git rebase ${shellQuote(branchInfo.upstream)}`"
+            class="tree-branch-cmd-rebase"
+          >
+            git rebase &lt;upstream&gt;
+          </DropdownItem>
+          <DropdownItem value="git pull" class="tree-branch-cmd-danger">git pull</DropdownItem>
         </Dropdown>
         <span
           v-if="activeDiffStats && (activeDiffStats.additions > 0 || activeDiffStats.deletions > 0)"
@@ -401,6 +434,12 @@ const pullMenuOpen = ref(false);
 const expanded = computed(() => new Set(props.expandedPaths));
 const branchIcon = computed(() => (props.branchInfo ? 'lucide:git-branch' : 'lucide:folder'));
 const branchName = computed(() => props.branchInfo?.branch ?? props.directoryName ?? 'no git');
+const upstreamRemote = computed(() => {
+  const upstream = props.branchInfo?.upstream;
+  if (!upstream) return 'origin';
+  const slashIdx = upstream.indexOf('/');
+  return slashIdx > 0 ? upstream.slice(0, slashIdx) : 'origin';
+});
 
 const branchTitle = computed(() => {
   const info = props.branchInfo;
@@ -789,6 +828,11 @@ function onBranchDelete(entry: BranchEntry) {
   void props.runShellCommand?.(`git branch -d ${shellQuote(entry.displayName)}`);
 }
 
+function onRemoteFetch(remote: string) {
+  branchMenuOpen.value = false;
+  void props.runShellCommand?.(`git fetch ${shellQuote(remote)}`);
+}
+
 function onBranchCommandSelect(value: unknown) {
   if (typeof value !== 'string') return;
   if (typeof window !== 'undefined') {
@@ -967,10 +1011,38 @@ function onRowDoubleClick(row: { node: TreeNode }) {
   color: var(--color-red-300);
 }
 
+.tree-branch-fetch-btn {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  background: transparent;
+  color: var(--color-slate-500);
+}
+
+.tree-branch-fetch-btn:hover {
+  color: var(--color-slate-300);
+  background: var(--color-slate-800);
+}
+
 .tree-branch-action-spacer {
   width: 22px;
   height: 22px;
   flex-shrink: 0;
+}
+
+:deep(.tree-branch-cmd-danger .ui-dropdown-item-content) {
+  color: var(--color-red-300);
+}
+
+:deep(.tree-branch-cmd-merge .ui-dropdown-item-content) {
+  color: var(--color-purple-300);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+:deep(.tree-branch-cmd-rebase .ui-dropdown-item-content) {
+  color: var(--color-amber-300);
 }
 
 .tree-branch-menu-empty,

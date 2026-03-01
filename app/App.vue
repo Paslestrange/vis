@@ -559,6 +559,7 @@ type ShellSession = {
   terminal: Terminal;
   socket?: WebSocket;
   exiting?: boolean;
+  closeOnSuccess?: boolean;
 };
 
 type CommitSnapshotEntry = {
@@ -2001,13 +2002,6 @@ function getRandomWindowPosition(size?: { width?: number; height?: number }) {
   };
 }
 
-function parseShellArgs(input: string) {
-  const trimmed = input.trim();
-  if (!trimmed) return { command: undefined, args: [] as string[] };
-  const parts = trimmed.split(/\s+/g).filter(Boolean);
-  return { command: parts[0], args: parts.slice(1) };
-}
-
 function generateAttachmentId() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
   return `att-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -3092,7 +3086,6 @@ function connectShellSocket(ptyId: string) {
     if (socket.readyState === WebSocket.OPEN) socket.send(data);
   });
   socket.addEventListener('close', () => {
-    session.terminal.write('\r\n[disconnected]\r\n');
     if (session.exiting) {
       setTimeout(() => removeShellWindow(ptyId), SHELL_LINGER_MS);
     }
@@ -3163,9 +3156,16 @@ async function restoreShellSessions() {
 }
 
 async function openShellFromInput(input: string) {
-  const { command, args } = parseShellArgs(input);
-  const pty = await createPtySession(command, args);
-  if (pty) ensureShellWindow(pty);
+  const script = input.trim();
+  const hasCommand = script.length > 0;
+  const pty = hasCommand
+    ? await createPtySession('/bin/sh', ['-c', script])
+    : await createPtySession();
+  if (!pty) return;
+  ensureShellWindow(pty);
+  if (!hasCommand) return;
+  const session = shellSessionsByPtyId.get(pty.id);
+  if (session) session.closeOnSuccess = true;
 }
 
 async function runTreeGitCommand(command: string) {
@@ -5150,11 +5150,18 @@ function handlePtyEvent(event: {
   type: 'pty.created' | 'pty.updated' | 'pty.exited';
   info: PtyInfo | null;
   id?: string;
+  exitCode?: number;
 }) {
   const ptyId = event.id ?? event.info?.id;
   if (!ptyId) return;
   if (!shellSessionsByPtyId.has(ptyId)) return;
   if (event.type === 'pty.exited') {
+    const session = shellSessionsByPtyId.get(ptyId);
+    if (session?.closeOnSuccess && event.exitCode !== 0) {
+      const exitCode = typeof event.exitCode === 'number' ? event.exitCode : -1;
+      session.terminal.write(`\r\n\u001b[31m[Command failed: ${exitCode}]\u001b[0m\r\n`);
+      return;
+    }
     lingerAndRemoveShellWindow(ptyId);
     return;
   }
@@ -5167,6 +5174,7 @@ function handlePtyEvent(event: {
       }
     }
     if (event.info.status === 'exited') {
+      if (existing?.closeOnSuccess) return;
       lingerAndRemoveShellWindow(event.info.id);
     }
   }
@@ -5420,8 +5428,8 @@ onMounted(() => {
     }),
   );
   globalEventUnsubscribers.push(
-    ge.on('pty.exited', ({ id }) => {
-      handlePtyEvent({ type: 'pty.exited', info: null, id });
+    ge.on('pty.exited', ({ id, exitCode }) => {
+      handlePtyEvent({ type: 'pty.exited', info: null, id, exitCode });
     }),
   );
   globalEventUnsubscribers.push(

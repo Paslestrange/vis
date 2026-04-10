@@ -55,6 +55,17 @@
             </label>
           </div>
         </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Analytics</div>
+            <div class="setting-description">
+              Open token usage and cost dashboard (Ctrl+Shift+A).
+            </div>
+          </div>
+          <button type="button" class="action-button" @click="$emit('open-analytics')">
+            Open
+          </button>
+        </div>
       </div>
     </div>
   </dialog>
@@ -74,6 +85,7 @@ const props = defineProps<{
 
 defineEmits<{
   (event: 'close'): void;
+  (event: 'open-analytics'): void;
   (event: 'update:themeMode', mode: ThemeMode): void;
 }>();
 
@@ -244,6 +256,23 @@ watch(
 .toggle-input:checked + .toggle-track::after {
   transform: translateX(16px);
   background: #fff;
+}
+
+.action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: #111a2c;
+  color: #e2e8f0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.action-button:hover {
+  background: #1d2a45;
 }
 
 .setting-group {

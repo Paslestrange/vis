@@ -194,7 +194,7 @@
       </div>
     </div>
     <ProjectPicker :open="isProjectPickerOpen" :home-path="homePath" @close="isProjectPickerOpen = false" @select="handleProjectDirectorySelect" />
-    <SettingsModal :open="isSettingsOpen" :theme-mode="mode" @close="isSettingsOpen = false" @update:theme-mode="setMode" />
+    <SettingsModal :open="isSettingsOpen" :theme-mode="mode" @close="isSettingsOpen = false" @update:theme-mode="setMode" @open-analytics="isSettingsOpen = false; isAnalyticsOpen = true" />
     <ShortcutHelp :open="isShortcutHelpOpen" @close="isShortcutHelpOpen = false" />
     <CommandPalette
       :open="palette.isOpen.value"
@@ -203,6 +203,13 @@
       @update:query="(v) => (palette.query.value = v)"
       @execute="handlePaletteExecute"
       @close="palette.close()"
+    />
+    <AnalyticsPanel
+      :open="isAnalyticsOpen"
+      :session-id="selectedSessionId"
+      :project-id="selectedProjectId"
+      :context-limit="analyticsContextLimit"
+      @close="isAnalyticsOpen = false"
     />
     <ProjectSettingsDialog
       :open="!!editingProject"
@@ -274,6 +281,8 @@ import { useAppInit } from './composables/useAppInit';
 import { useSessionStatus } from './composables/useSessionStatus';
 import { useTheme } from './composables/useTheme';
 import { useLifecycleWatches } from './composables/useLifecycleWatches';
+import { useAnalytics } from './composables/useAnalytics';
+import AnalyticsPanel from './components/AnalyticsPanel.vue';
 
 const credentials = useCredentials();
 const { suppressAutoWindows } = useSettings();
@@ -324,25 +333,34 @@ const primaryHistoryRequestId = ref(0);
 const userMessageMetaById = ref<Record<string, { total: number }>>({});
 const userMessageTimeById = ref<Record<string, number>>({});
 const notificationPermissionRequested = ref(false);
+const isAnalyticsOpen = ref(false);
+
+function resolveProjectIdForSession(sessionId: string): string {
+  const preferredProjectId = selectedProjectId.value.trim();
+  if (preferredProjectId) {
+    const preferredSessions = sessionsByProject.value[preferredProjectId] ?? [];
+    if (preferredSessions.some((s: any) => s.id === sessionId)) return preferredProjectId;
+  }
+  for (const [projectId, projectSessions] of Object.entries(sessionsByProject.value)) {
+    if (projectSessions.some((s: any) => s.id === sessionId)) return projectId;
+  }
+  return '';
+}
 
 const messageMeta = useMessageMeta({
   notificationPermissionRequested, sessions: () => sessions.value,
-  resolveProjectIdForSession: (sessionId: string) => {
-    const preferredProjectId = selectedProjectId.value.trim();
-    if (preferredProjectId) {
-      const preferredSessions = sessionsByProject.value[preferredProjectId] ?? [];
-      if (preferredSessions.some((s: any) => s.id === sessionId)) return preferredProjectId;
-    }
-    for (const [projectId, projectSessions] of Object.entries(sessionsByProject.value)) {
-      if (projectSessions.some((s: any) => s.id === sessionId)) return projectId;
-    }
-    return '';
-  },
+  resolveProjectIdForSession,
   sessionLabel: (s: any) => s.title || s.slug || s.id, switchSessionSelection,
   selectedProjectId, selectedSessionId, providers, userMessageMetaById,
   userMessageTimeById, msg: undefined as any, primaryHistoryRequestId,
   getSelectedWorktreeDirectory: () => activeDirectory.value.trim(), notifyContentChange,
   ge: undefined as any,
+});
+
+const analytics = useAnalytics();
+ge.on('message.updated', (payload) => {
+  if (payload.info.role !== 'assistant') return;
+  analytics.recordUsage(payload.info.sessionID, resolveProjectIdForSession(payload.info.sessionID), payload.info);
 });
 
 const ge = useGlobalEvents(credentials);
@@ -490,13 +508,19 @@ async function handlePaletteExecute(result: Parameters<typeof palette['flatResul
 const sessionStatus = useSessionStatus({ selectedSessionId, allowedSessionIds, updateReasoningExpiry });
 const { retryStatus, formatRetryTime, applySessionStatusEvent } = sessionStatus;
 
+const analyticsContextLimit = computed(() => {
+  const { providerID, modelID } = parseProviderModelKey(selectedModel.value);
+  const limit = messageMeta.resolveProviderModelLimit(providerID, modelID);
+  return limit?.context ?? null;
+});
+
 watch(resolvedMode, async (mode) => {
   if (mode === 'light') {
     await import('./App.vue.light.css');
   }
 }, { immediate: true });
 
-const globalShortcuts = useGlobalShortcuts({ selectedProjectId, selectedSessionId, navigableTree, switchSessionSelection, createNewSession, openShell: (input: string) => shellManager.openShellFromInput(input), notificationSessions, handleNotificationSessionSelect, focusInput, abortSession, canAbort, sidePanelCollapsed, toggleSidePanelCollapsed, startInputResize: appLayout.startInputResize, startSidePanelResize: appLayout.startSidePanelResize, isSettingsOpen, isProjectPickerOpen, isShortcutHelpOpen, isCommandPaletteOpen: palette.isOpen, toggleCommandPalette: palette.toggle, topPanelRef });
+const globalShortcuts = useGlobalShortcuts({ selectedProjectId, selectedSessionId, navigableTree, switchSessionSelection, createNewSession, openShell: (input: string) => shellManager.openShellFromInput(input), notificationSessions, handleNotificationSessionSelect, focusInput, abortSession, canAbort, sidePanelCollapsed, toggleSidePanelCollapsed, startInputResize: appLayout.startInputResize, startSidePanelResize: appLayout.startSidePanelResize, isSettingsOpen, isAnalyticsOpen, isProjectPickerOpen, isShortcutHelpOpen, isCommandPaletteOpen: palette.isOpen, toggleCommandPalette: palette.toggle, topPanelRef });
 const { handleGlobalKeydown } = globalShortcuts;
 
 const appInit = useAppInit({ credentials, ge, bootstrapReady, selectedSessionId, activeDirectory, fetchProviders, fetchAgents, fetchCommands, fetchPendingPermissions, fetchPendingQuestions, bootstrapSelections, reloadSelectedSessionState, refreshGitStatus, shellManager, messageMeta, sendStatus: ref('Ready'), opencodeApi: opencodeApi as any, serverWorktreePath, homePath });

@@ -414,4 +414,63 @@ function formatCurrency(n: number): string {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+html.theme-light .modal {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: #cbd5e1;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+}
+
+html.theme-light .modal-backdrop::backdrop {
+  background: rgba(15, 23, 42, 0.25);
+}
+
+html.theme-light .modal-close-button {
+  border-color: #cbd5e1;
+  color: #64748b;
+}
+
+html.theme-light .modal-close-button:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+html.theme-light .empty-state {
+  color: #94a3b8;
+}
+
+html.theme-light .section-title {
+  color: #64748b;
+}
+
+html.theme-light .token-bar-track {
+  background: rgba(226, 232, 240, 0.9);
+}
+
+html.theme-light .chart-wrap {
+  background: rgba(248, 250, 252, 0.85);
+  border-color: #e2e8f0;
+}
+
+html.theme-light .empty-chart {
+  color: #94a3b8;
+}
+
+html.theme-light .chart-legend {
+  color: #64748b;
+}
+
+html.theme-light .stat {
+  border-color: #e2e8f0;
+  background: rgba(248, 250, 252, 0.85);
+}
+
+html.theme-light .stat-value {
+  color: #0f172a;
+}
+
+html.theme-light .stat-label {
+  color: #94a3b8;
+}
 </style>

@@ -173,4 +173,33 @@ function selectSuggestion(tag: string) {
 .tag-suggestion:hover {
   background: rgba(30, 41, 59, 0.8);
 }
+
+html.theme-light .tag-chip {
+  color: #2563eb;
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+html.theme-light .tag-input {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+html.theme-light .tag-input:focus {
+  border-color: #94a3b8;
+}
+
+html.theme-light .tag-suggestions {
+  background: #ffffff;
+  border-color: #cbd5e1;
+}
+
+html.theme-light .tag-suggestion {
+  color: #0f172a;
+}
+
+html.theme-light .tag-suggestion:hover {
+  background: rgba(226, 232, 240, 0.8);
+}
 </style>

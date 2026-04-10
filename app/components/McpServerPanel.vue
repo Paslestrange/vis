@@ -467,4 +467,108 @@ function getStatusLabel(status?: string) {
 .fade-leave-to {
   opacity: 0;
 }
+
+html.theme-light .mcp-panel {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: #cbd5e1;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+}
+
+html.theme-light .mcp-panel-close {
+  border-color: #cbd5e1;
+  color: #64748b;
+}
+
+html.theme-light .mcp-panel-close:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+html.theme-light .mcp-empty {
+  color: #94a3b8;
+  border-color: #cbd5e1;
+  background: rgba(248, 250, 252, 0.85);
+}
+
+html.theme-light .mcp-server-card {
+  border-color: #e2e8f0;
+  background: rgba(248, 250, 252, 0.85);
+}
+
+html.theme-light .mcp-server-name {
+  color: #0f172a;
+}
+
+html.theme-light .mcp-server-command {
+  color: #64748b;
+}
+
+html.theme-light .mcp-server-error {
+  color: #ef4444;
+}
+
+html.theme-light .mcp-action-button {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+html.theme-light .mcp-action-button:hover {
+  background: #e2e8f0;
+}
+
+html.theme-light .mcp-action-button.is-danger {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+html.theme-light .mcp-form {
+  border-color: #e2e8f0;
+  background: rgba(248, 250, 252, 0.85);
+}
+
+html.theme-light .mcp-form-title {
+  color: #0f172a;
+}
+
+html.theme-light .mcp-label {
+  color: #64748b;
+}
+
+html.theme-light .mcp-input,
+html.theme-light .mcp-textarea {
+  border-color: #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+html.theme-light .mcp-input:focus,
+html.theme-light .mcp-textarea:focus {
+  border-color: #3b82f6;
+}
+
+html.theme-light .mcp-form-error {
+  color: #ef4444;
+}
+
+html.theme-light .mcp-primary-button {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.12);
+  color: #0f172a;
+}
+
+html.theme-light .mcp-primary-button:hover {
+  background: rgba(59, 130, 246, 0.22);
+}
+
+html.theme-light .mcp-secondary-button {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+html.theme-light .mcp-secondary-button:hover {
+  background: #e2e8f0;
+}
 </style>

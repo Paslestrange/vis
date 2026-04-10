@@ -123,4 +123,30 @@ const resultText = computed(() => {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+html.theme-light .tool-placeholder {
+  color: #64748b;
+}
+
+html.theme-light .mcp-header {
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(241, 245, 249, 0.7);
+}
+
+html.theme-light .mcp-meta {
+  color: #0f172a;
+}
+
+html.theme-light .mcp-label {
+  color: #64748b;
+}
+
+html.theme-light .mcp-section-title {
+  color: #475569;
+}
+
+html.theme-light .mcp-code {
+  background: rgba(241, 245, 249, 0.95);
+  color: #0f172a;
+}
 </style>

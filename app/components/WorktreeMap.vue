@@ -405,4 +405,113 @@ function confirmDelete(directory: string) {
   font-size: 12px;
   color: #94a3b8;
 }
+
+html.theme-light .worktree-create-btn {
+  border-color: rgba(148, 163, 184, 0.5);
+  background: rgba(241, 245, 249, 0.9);
+  color: #475569;
+}
+
+html.theme-light .worktree-create-btn:hover {
+  background: rgba(226, 232, 240, 0.95);
+  color: #0f172a;
+}
+
+html.theme-light .worktree-refresh-btn {
+  border-color: rgba(148, 163, 184, 0.5);
+  background: rgba(241, 245, 249, 0.9);
+  color: #475569;
+}
+
+html.theme-light .worktree-refresh-btn:hover {
+  background: rgba(226, 232, 240, 0.95);
+  color: #0f172a;
+}
+
+html.theme-light .worktree-empty {
+  color: #64748b;
+}
+
+html.theme-light .worktree-card {
+  border-color: rgba(148, 163, 184, 0.45);
+  background: rgba(241, 245, 249, 0.7);
+}
+
+html.theme-light .worktree-card.is-active {
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(59, 130, 246, 0.12);
+}
+
+html.theme-light .worktree-branch {
+  color: #0f172a;
+}
+
+html.theme-light .worktree-directory {
+  color: #64748b;
+}
+
+html.theme-light .worktree-badge.is-clean {
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #16a34a;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+html.theme-light .worktree-badge.is-modified {
+  border-color: rgba(234, 179, 8, 0.4);
+  color: #ca8a04;
+  background: rgba(234, 179, 8, 0.14);
+}
+
+html.theme-light .worktree-badge.is-staged {
+  border-color: rgba(59, 130, 246, 0.35);
+  color: #2563eb;
+  background: rgba(59, 130, 246, 0.12);
+}
+
+html.theme-light .worktree-badge.is-ahead {
+  border-color: rgba(34, 197, 94, 0.3);
+  color: #16a34a;
+  background: rgba(34, 197, 94, 0.1);
+}
+
+html.theme-light .worktree-badge.is-behind {
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+html.theme-light .worktree-badge.is-main {
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #475569;
+  background: rgba(148, 163, 184, 0.15);
+}
+
+html.theme-light .worktree-action-btn {
+  border-color: rgba(148, 163, 184, 0.4);
+  background: rgba(241, 245, 249, 0.85);
+  color: #475569;
+}
+
+html.theme-light .worktree-action-btn:hover:not(:disabled) {
+  background: rgba(226, 232, 240, 0.95);
+  color: #0f172a;
+}
+
+html.theme-light .worktree-action-btn.is-delete {
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+html.theme-light .worktree-action-btn.is-delete:hover {
+  background: rgba(239, 68, 68, 0.18);
+}
+
+html.theme-light .worktree-dropdown-branch {
+  color: #0f172a;
+}
+
+html.theme-light .worktree-dropdown-empty {
+  color: #64748b;
+}
 </style>

@@ -1,16 +1,14 @@
 {
-  "name": "@xenodrive/vis",
+  "name": "@paslestrange/vis",
   "version": "0.0.1",
   "description": "Vis - OpenCode Visualizer",
   "keywords": [
     "opencode",
     "webui"
   ],
-  "homepage": "https://xenodrive.github.io/vis",
   "license": "MIT",
-  "author": "Xenodrive, Inc.",
   "repository": {
-    "url": "https://github.com/xenodrive/vis"
+    "url": "https://github.com/Paslestrange/vis"
   },
   "bin": {
     "vis": "server.js"

@@ -58,6 +58,9 @@
             :tree-branch-entries="branchEntries"
             :tree-branch-list-loading="branchListLoading"
             :run-shell-command="shellManager.runTreeShellCommand"
+            :worktrees="worktrees"
+            :worktrees-loading="worktreesLoading"
+            :home-path="homePath"
             @toggle-collapse="toggleSidePanelCollapsed"
             @change-tab="setSidePanelTab"
             @toggle-dir="toggleTreeDirectory"
@@ -66,6 +69,10 @@
             @open-diff-all="(payload: { mode: 'staged' | 'changes' | 'all' }) => fileViewers.openAllGitDiff(payload.mode)"
             @open-file="fileViewers.openFileViewer"
             @reload="reloadTree().then(() => refreshGitStatus())"
+            @switch-worktree="handleSwitchWorktree"
+            @delete-worktree="deleteWorktree"
+            @create-worktree-from-branch="handleCreateWorktreeFromBranch"
+            @refresh-worktrees="refreshWorktrees"
           />
           <div v-if="!sidePanelCollapsed" class="side-resizer" @pointerdown="appLayout.startSidePanelResize"></div>
         </div>
@@ -201,7 +208,23 @@
       </div>
     </div>
     <ProjectPicker :open="isProjectPickerOpen" :home-path="homePath" @close="isProjectPickerOpen = false" @select="handleProjectDirectorySelect" />
-    <SettingsModal :open="isSettingsOpen" @close="isSettingsOpen = false" />
+    <SettingsModal :open="isSettingsOpen" :theme-mode="mode" @close="isSettingsOpen = false" @update:theme-mode="setMode" @open-analytics="isSettingsOpen = false; isAnalyticsOpen = true" />
+    <ShortcutHelp :open="isShortcutHelpOpen" @close="isShortcutHelpOpen = false" />
+    <CommandPalette
+      :open="palette.isOpen.value"
+      :query="palette.query.value"
+      :groups="palette.filteredResults.value"
+      @update:query="(v) => (palette.query.value = v)"
+      @execute="handlePaletteExecute"
+      @close="palette.close()"
+    />
+    <AnalyticsPanel
+      :open="isAnalyticsOpen"
+      :session-id="selectedSessionId"
+      :project-id="selectedProjectId"
+      :context-limit="analyticsContextLimit"
+      @close="isAnalyticsOpen = false"
+    />
     <ProjectSettingsDialog
       :open="!!editingProject"
       :project-id="editingProject?.projectId ?? ''"
@@ -228,6 +251,8 @@ import SidePanel from './components/SidePanel.vue';
 import Welcome from './components/Welcome.vue';
 import TopPanel from './components/TopPanel.vue';
 import SettingsModal from './components/SettingsModal.vue';
+import CommandPalette from './components/CommandPalette.vue';
+import ShortcutHelp from './components/ShortcutHelp.vue';
 import ProjectSettingsDialog from './components/ProjectSettingsDialog.vue';
 import { useAutoScroller, type ScrollMode } from './composables/useAutoScroller';
 import { useFileTree } from './composables/useFileTree';
@@ -254,6 +279,7 @@ import { StorageKeys, storageGet, storageRemove, storageSet } from './utils/stor
 import { toErrorMessage } from './utils/formatters';
 import { runDebugCommand } from './utils/debugCommands';
 import { useShellManager } from './composables/useShellManager';
+import { usePtyOneshot } from './composables/usePtyOneshot';
 import { useFileViewers } from './composables/useFileViewers';
 import { useToolWindows, decodeApiTextContent } from './composables/useToolWindows';
 import { useComposerDrafts } from './composables/useComposerDrafts';
@@ -262,16 +288,22 @@ import { useSessionMutations } from './composables/useSessionMutations';
 import { useMessageMeta } from './composables/useMessageMeta';
 import { useModelOptions, buildThinkingOptions, buildProviderModelKey, parseProviderModelKey } from './composables/useModelOptions';
 import { useGlobalShortcuts } from './composables/useGlobalShortcuts';
+import { useCommandPalette } from './composables/useCommandPalette';
 import { useProjectSessionNav } from './composables/useProjectSessionNav';
 import { useComposerState } from './composables/useComposerState';
 import { useChatActions } from './composables/useChatActions';
 import { useOutputHandlers } from './composables/useOutputHandlers';
 import { useAppInit } from './composables/useAppInit';
 import { useSessionStatus } from './composables/useSessionStatus';
+import { useTheme } from './composables/useTheme';
 import { useLifecycleWatches } from './composables/useLifecycleWatches';
+import { useWorktrees } from './composables/useWorktrees';
+import { useAnalytics } from './composables/useAnalytics';
+import AnalyticsPanel from './components/AnalyticsPanel.vue';
 
 const credentials = useCredentials();
 const { suppressAutoWindows } = useSettings();
+const { mode, resolvedMode, setMode } = useTheme();
 const FOLLOW_THRESHOLD_PX = 24;
 const REASONING_CLOSE_DELAY_MS = 3000;
 const SUBAGENT_CLOSE_DELAY_MS = 3000;
@@ -309,7 +341,7 @@ const { selectedProjectId, selectedSessionId, projectDirectory, activeDirectory,
 const mo = useModelOptions();
 const { providers, agents, commands, modelOptions, agentOptions, thinkingOptions, providersLoaded, providersLoading, providersFetchCount, agentsLoading, commandsLoading, selectedModel, selectedThinking, selectedMode, applyModelVariantSelection, applyAgentDefaults, resolveDefaultAgentModel, fetchProviders, fetchAgents, fetchCommands } = mo;
 
-const toolWindows = useToolWindows(fw, { activeDirectory, shikiTheme: ref('github-dark') });
+const toolWindows = useToolWindows(fw, { activeDirectory, shikiTheme: shikiTheme as any });
 const composerDrafts = useComposerDrafts();
 const appLayout = useAppLayout({ outputEl, inputEl, appBodyEl, sidePanelAreaEl, toolWindowCanvasEl, fw, shellManager: undefined as any });
 
@@ -321,25 +353,34 @@ const primaryHistoryRequestId = ref(0);
 const userMessageMetaById = ref<Record<string, { total: number }>>({});
 const userMessageTimeById = ref<Record<string, number>>({});
 const notificationPermissionRequested = ref(false);
+const isAnalyticsOpen = ref(false);
+
+function resolveProjectIdForSession(sessionId: string): string {
+  const preferredProjectId = selectedProjectId.value.trim();
+  if (preferredProjectId) {
+    const preferredSessions = sessionsByProject.value[preferredProjectId] ?? [];
+    if (preferredSessions.some((s: any) => s.id === sessionId)) return preferredProjectId;
+  }
+  for (const [projectId, projectSessions] of Object.entries(sessionsByProject.value)) {
+    if (projectSessions.some((s: any) => s.id === sessionId)) return projectId;
+  }
+  return '';
+}
 
 const messageMeta = useMessageMeta({
   notificationPermissionRequested, sessions: () => sessions.value,
-  resolveProjectIdForSession: (sessionId: string) => {
-    const preferredProjectId = selectedProjectId.value.trim();
-    if (preferredProjectId) {
-      const preferredSessions = sessionsByProject.value[preferredProjectId] ?? [];
-      if (preferredSessions.some((s: any) => s.id === sessionId)) return preferredProjectId;
-    }
-    for (const [projectId, projectSessions] of Object.entries(sessionsByProject.value)) {
-      if (projectSessions.some((s: any) => s.id === sessionId)) return projectId;
-    }
-    return '';
-  },
+  resolveProjectIdForSession,
   sessionLabel: (s: any) => s.title || s.slug || s.id, switchSessionSelection,
   selectedProjectId, selectedSessionId, providers, userMessageMetaById,
   userMessageTimeById, msg: undefined as any, primaryHistoryRequestId,
   getSelectedWorktreeDirectory: () => activeDirectory.value.trim(), notifyContentChange,
   ge: undefined as any,
+});
+
+const analytics = useAnalytics();
+ge.on('message.updated', (payload) => {
+  if (payload.info.role !== 'assistant') return;
+  analytics.recordUsage(payload.info.sessionID, resolveProjectIdForSession(payload.info.sessionID), payload.info);
 });
 
 const ge = useGlobalEvents(credentials);
@@ -378,11 +419,11 @@ watch(
   { immediate: true },
 );
 
-const reasoning = useReasoningWindows({ selectedSessionId, fw, reasoningComponent: SubagentContent, theme: () => 'github-dark', reasoningCloseDelayMs: REASONING_CLOSE_DELAY_MS, resolveModelName: (providerID: string, modelID: string) => { const key = `${providerID}/${modelID}`; return modelOptions.value.find((m) => m.id === key)?.displayName; }, suppressAutoWindows });
+const reasoning = useReasoningWindows({ selectedSessionId, fw, reasoningComponent: SubagentContent, theme: () => shikiTheme.value, reasoningCloseDelayMs: REASONING_CLOSE_DELAY_MS, resolveModelName: (providerID: string, modelID: string) => { const key = `${providerID}/${modelID}`; return modelOptions.value.find((m) => m.id === key)?.displayName; }, suppressAutoWindows });
 const { updateReasoningExpiry } = reasoning;
 reasoning.bindScope(sessionScope);
 
-const subagentWindows = useSubagentWindows({ selectedSessionId, fw, subagentComponent: SubagentContent, theme: () => 'github-dark', closeDelayMs: SUBAGENT_CLOSE_DELAY_MS, resolveModelName: (providerID: string, modelID: string) => { const key = `${providerID}/${modelID}`; return modelOptions.value.find((m) => m.id === key)?.displayName; }, suppressAutoWindows });
+const subagentWindows = useSubagentWindows({ selectedSessionId, fw, subagentComponent: SubagentContent, theme: () => shikiTheme.value, closeDelayMs: SUBAGENT_CLOSE_DELAY_MS, resolveModelName: (providerID: string, modelID: string) => { const key = `${providerID}/${modelID}`; return modelOptions.value.find((m) => m.id === key)?.displayName; }, suppressAutoWindows });
 subagentWindows.bindScope(sessionScope);
 
 (messageMeta as any).msg = msg;
@@ -394,6 +435,9 @@ appLayout.shellManager = shellManager as any;
 const fileViewers = useFileViewers(fw, { getDirectory: () => activeDirectory.value, getShikiTheme: () => shikiTheme.value, resolvePath: (path?: string) => { if (!path) return undefined; const np = path.replace(/\/+$/, ''); const base = activeDirectory.value.replace(/\/+$/, ''); if (!base) return np; if (!np.startsWith('/')) return np; if (np === base) return '.'; const prefix = `${base}/`; if (np.startsWith(prefix)) return np.slice(prefix.length); return np; } });
 
 const { treeNodes, expandedTreePaths, expandedTreePathSet, selectedTreePath, treeLoading, treeError, gitStatus, gitStatusByPath, refreshGitStatus, reloadTree, toggleTreeDirectory, selectTreeFile, feed, branchEntries, branchListLoading, refreshBranchEntries } = useFileTree({ activeDirectory });
+
+const currentProject = computed(() => serverState.projects[selectedProjectId.value]);
+const { worktrees, loading: worktreesLoading, refreshWorktrees } = useWorktrees({ activeDirectory, currentProject, activeGitBranchInfo: computed(() => gitStatus.value?.branch ?? null) });
 
 const allowedSessionIds = computed(() => {
   const rootId = selectedSessionId.value; if (!rootId) return new Set<string>();
@@ -411,8 +455,9 @@ watchEffect(() => {});
 const { upsertPermissionEntry, removePermissionEntry, prunePermissionEntries, fetchPendingPermissions } = usePermissions({ fw, allowedSessionIds, activeDirectory, ensureConnectionReady: () => true });
 const { upsertQuestionEntry, removeQuestionEntry, pruneQuestionEntries, fetchPendingQuestions } = useQuestions({ fw, allowedSessionIds, activeDirectory, ensureConnectionReady: () => true, getTextContent: (messageId: string) => msg.getTextContent(messageId) || '' });
 
-const homePath = ref(''); const serverWorktreePath = ref(''); const shikiTheme = ref('github-dark'); const sidePanelCollapsed = ref(false);
-const sidePanelActiveTab = ref<'todo' | 'tree'>('tree');
+const homePath = ref(''); const serverWorktreePath = ref(''); const shikiTheme = computed(() => (resolvedMode.value === 'light' ? 'github-light' : 'github-dark')); const sidePanelCollapsed = ref(false);
+const isShortcutHelpOpen = ref(false);
+const sidePanelActiveTab = ref<'todo' | 'tree' | 'worktrees'>('tree');
 const { inputHeight, sidePanelWidth } = appLayout;
 
 function toSessionInfo(directory: string, session: any): any {
@@ -444,10 +489,87 @@ const sessionMutations = useSessionMutations({ selectedProjectId, selectedSessio
 const chatActions = useChatActions({ ensureConnectionReady, activeDirectory, selectedSessionId, filteredSessions, messageInput, attachments, selectedMode, selectedModel, selectedThinking, modelOptions, parseProviderModelKey, opencodeApi: openCodeApi as any, shellManager: { openShellFromInput: (input: string) => shellManager.openShellFromInput(input) }, runAppDebugCommand, commands, requireSelectedWorktree, enableFollow, clearComposerDraftForCurrentContext, busyDescendantSessionIds, isThinking, uiInitState: ref('loading'), connectionState: ref('connecting'), sendStatus: ref('Ready'), pickPreferredSessionId });
 const { sendMessage, sendCommand, abortSession, parseSlashCommand, findCommandByName, isSending, isAborting, commandOptions, canSend, canAbort } = chatActions;
 
+const paletteSessions = computed(() => {
+  const list: Array<{ id: string; projectId: string; title?: string; slug?: string; directory?: string }> = [];
+  for (const [projectId, projectSessions] of Object.entries(sessionsByProject.value)) {
+    for (const session of projectSessions) {
+      list.push({
+        id: session.id,
+        projectId,
+        title: session.title,
+        slug: session.slug,
+        directory: session.directory,
+      });
+    }
+  }
+  return list;
+});
+
+const paletteProjects = computed(() => {
+  return Object.values(serverState.projects).map((project) => ({
+    id: project.id,
+    name: project.name?.trim() || project.worktree.replace(/\/+$/, '').split('/').pop() || project.id,
+    worktree: project.worktree,
+  }));
+});
+
+const paletteCommands = computed(() =>
+  commandOptions.value.map((command) => ({
+    name: command.name,
+    description: command.description,
+    hints: command.hints,
+  })),
+);
+
+const palette = useCommandPalette({
+  sessions: paletteSessions,
+  projects: paletteProjects,
+  commands: paletteCommands,
+});
+
+async function handlePaletteExecute(result: Parameters<typeof palette['flatResults']['value'][number]>[0] extends { type: infer T } ? { type: T; item?: unknown } : never) {
+  palette.close();
+  if (result.type === 'session') {
+    const item = (result as { type: 'session'; item: { id: string; projectId: string } }).item;
+    await switchSessionSelection(item.projectId, item.id);
+    return;
+  }
+  if (result.type === 'project') {
+    const item = (result as { type: 'project'; item: { id: string } }).item;
+    const projectSessions = sessionsByProject.value[item.id] ?? [];
+    const targetId = pickPreferredSessionId(projectSessions);
+    if (targetId) {
+      await switchSessionSelection(item.id, targetId);
+    }
+    return;
+  }
+  if (result.type === 'command') {
+    const item = (result as { type: 'command'; item: { name: string } }).item;
+    messageInput.value = `/${item.name} `;
+    nextTick(() => focusInput());
+    return;
+  }
+  if (result.type === 'settings') {
+    isSettingsOpen.value = true;
+  }
+}
+
 const sessionStatus = useSessionStatus({ selectedSessionId, allowedSessionIds, updateReasoningExpiry });
 const { retryStatus, formatRetryTime, applySessionStatusEvent } = sessionStatus;
 
-const globalShortcuts = useGlobalShortcuts({ selectedProjectId, selectedSessionId, navigableTree, switchSessionSelection, createNewSession, openShell: (input: string) => shellManager.openShellFromInput(input), notificationSessions, handleNotificationSessionSelect, focusInput, abortSession, canAbort, sidePanelCollapsed, toggleSidePanelCollapsed, startInputResize: appLayout.startInputResize, startSidePanelResize: appLayout.startSidePanelResize, isSettingsOpen, isProjectPickerOpen, topPanelRef });
+const analyticsContextLimit = computed(() => {
+  const { providerID, modelID } = parseProviderModelKey(selectedModel.value);
+  const limit = messageMeta.resolveProviderModelLimit(providerID, modelID);
+  return limit?.context ?? null;
+});
+
+watch(resolvedMode, async (mode) => {
+  if (mode === 'light') {
+    await import('./App.vue.light.css');
+  }
+}, { immediate: true });
+
+const globalShortcuts = useGlobalShortcuts({ selectedProjectId, selectedSessionId, navigableTree, switchSessionSelection, createNewSession, openShell: (input: string) => shellManager.openShellFromInput(input), notificationSessions, handleNotificationSessionSelect, focusInput, abortSession, canAbort, sidePanelCollapsed, toggleSidePanelCollapsed, startInputResize: appLayout.startInputResize, startSidePanelResize: appLayout.startSidePanelResize, isSettingsOpen, isAnalyticsOpen, isProjectPickerOpen, isShortcutHelpOpen, isCommandPaletteOpen: palette.isOpen, toggleCommandPalette: palette.toggle, topPanelRef });
 const { handleGlobalKeydown } = globalShortcuts;
 
 const appInit = useAppInit({ credentials, ge, bootstrapReady, selectedSessionId, activeDirectory, fetchProviders, fetchAgents, fetchCommands, fetchPendingPermissions, fetchPendingQuestions, bootstrapSelections, reloadSelectedSessionState, refreshGitStatus, shellManager, messageMeta, sendStatus: ref('Ready'), opencodeApi: opencodeApi as any, serverWorktreePath, homePath });
@@ -457,6 +579,50 @@ const statusText = computed(() => { if (connectionState.value === 'reconnecting'
 const isStatusError = computed(() => Boolean(projectError.value || worktreeError.value || sessionError.value || retryStatus.value));
 const sessionRevert = computed(() => { const projectId = selectedProjectId.value.trim(); const sessionId = selectedSessionId.value.trim(); if (!projectId || !sessionId) return null; const all = sessionsByProject.value[projectId] ?? []; const session = all.find((s: any) => s.id === sessionId); return session?.revert ?? null; });
 const treeDirectoryName = computed(() => { const raw = activeDirectory.value.trim(); if (!raw) return ''; const trimmed = raw.replace(/\/+$/, ''); if (!trimmed) return '/'; const segments = trimmed.split('/').filter(Boolean); return segments.at(-1) ?? '/'; });
+
+function handleSwitchWorktree(directory: string) {
+  if (normalizeDirectory(activeDirectory.value) === normalizeDirectory(directory)) return;
+  const projectId = selectedProjectId.value.trim();
+  const project = serverState.projects[projectId];
+  if (!project) return;
+  const sandbox = project.sandboxes[directory];
+  if (!sandbox) return;
+  const candidates = sandbox.rootSessions
+    .map((id) => sandbox.sessions[id])
+    .filter((s): s is NonNullable<typeof s> => Boolean(s) && !s.timeArchived)
+    .sort((a, b) => (b.timeUpdated ?? b.timeCreated ?? 0) - (a.timeUpdated ?? a.timeCreated ?? 0));
+  if (candidates.length > 0) {
+    void switchSessionSelection(projectId, candidates[0].id);
+  } else {
+    void createSessionInDirectory(directory);
+  }
+}
+
+async function handleCreateWorktreeFromBranch(branch: string) {
+  if (!ensureConnectionReady('Creating worktree')) return;
+  const baseDirectory = projectDirectory.value;
+  if (!baseDirectory) return;
+  try {
+    await createWorktreeFromWorktree(baseDirectory);
+    const projectId = selectedProjectId.value.trim();
+    const project = serverState.projects[projectId];
+    if (!project) return;
+    const newSandbox = Object.values(project.sandboxes)
+      .filter((s) => !normalizeDirectory(s.directory).startsWith(normalizeDirectory(baseDirectory) + '/') && normalizeDirectory(s.directory) !== normalizeDirectory(baseDirectory))
+      .sort((a, b) => (b.rootSessions.length ? 1 : 0) - (a.rootSessions.length ? 1 : 0))[0];
+    if (newSandbox) {
+      const { runOneShotPtyCommand } = usePtyOneshot();
+      const script = [
+        `cd "${newSandbox.directory}"`,
+        `git checkout "${branch.replace(/"/g, '\\"')}"`,
+      ].join('\n');
+      await runOneShotPtyCommand('bash', ['--noprofile', '--norc', '-c', script]);
+      void refreshWorktrees();
+    }
+  } catch {
+    void 0;
+  }
+}
 
 async function handleEditMessage(payload: { sessionId: string; part: MessagePart }) {
   const directory = activeDirectory.value.trim(); if (payload.part.type !== 'text') return;

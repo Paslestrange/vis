@@ -4,6 +4,7 @@ export const StorageKeys = {
   settings: {
     enterToSend: 'settings.enterToSend.v1',
     suppressAutoWindows: 'settings.suppressAutoWindows.v1',
+    themeMode: 'settings.themeMode.v1',
   },
   state: {
     sidePanelCollapsed: 'state.sidePanelCollapsed.v1',
@@ -16,6 +17,9 @@ export const StorageKeys = {
   },
   favorites: {
     messages: 'favorites.messages.v1',
+  },
+  commands: {
+    recent: 'commands.recent.v1',
   },
   auth: {
     credentials: 'auth.credentials.v1',

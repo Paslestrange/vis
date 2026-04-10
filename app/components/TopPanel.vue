@@ -1,5 +1,6 @@
 <template>
   <div class="top-panel">
+    <div v-if="copyToastVisible" class="copy-toast" role="status" aria-live="polite">Copied!</div>
     <div class="top-row">
       <div class="top-left flex items-center gap-2" :title="gitRevision">
         <img width="48px" height="24px" src="/logo.svg" class="" />
@@ -27,163 +28,229 @@
             totalNotificationCount
           }}</span>
         </button>
-        <Dropdown
-          v-model:open="treeDropdownOpen"
-          class="tree-dropdown-root"
-          :label="dropdownLabel"
-          placeholder="Select session"
-          title="Select session (Ctrl-G)"
-          auto-close
-          :popup-style="{ minWidth: '420px', width: 'min(680px, 90vw)', maxWidth: '90vw' }"
-          popup-class="max-lg:left-0! max-lg:w-screen! max-lg:min-w-0! max-lg:max-w-none!"
-          @select="onTreeSelect"
-        >
-          <template #label>
-            <span v-if="selectedDisplay" class="selected-label">
-              <span class="selected-status-icon">{{
-                sessionStatusIcon(selectedDisplay.status)
-              }}</span>
-              <span class="selected-title">{{ selectedDisplay.title }}</span>
-              <span class="selected-branch-badge">
-                <Icon icon="lucide:git-branch" :width="11" :height="11" />
-                {{ selectedDisplay.branch }}
-              </span>
-            </span>
-            <span v-else class="selected-title">Select session</span>
-          </template>
-          <template #default="{ close }">
-            <div class="tree-menu">
-              <DropdownSearch
-                v-model="searchQuery"
-                placeholder="Search sessions, branches, directories..."
-                class="tree-search"
-              >
-                <template #before>
-                  <Icon icon="lucide:search" class="search-icon" />
-                </template>
-                <template #after>
-                  <button
-                    v-if="searchQuery"
-                    type="button"
-                    class="clear-search"
-                    @click.stop="searchQuery = ''"
+
+        <div class="top-fields">
+          <!-- Project dropdown -->
+          <div class="top-field">
+            <Dropdown
+              v-model:open="projectDropdownOpen"
+              class="project-dropdown-root tree-dropdown-root"
+              :label="selectedProjectLabel"
+              placeholder="Select project"
+              title="Select project"
+              auto-close
+              @select="onProjectSelect"
+            >
+              <template #label>
+                <span v-if="selectedProjectDisplay" class="selected-label">
+                  <Icon
+                    :icon="selectedProjectDisplay.icon"
+                    :width="14"
+                    :height="14"
+                  />
+                  <span class="selected-title">{{ selectedProjectDisplay.name }}</span>
+                </span>
+                <span v-else class="selected-title">Select project</span>
+              </template>
+              <template #default="{ close }">
+                <div class="dropdown-list">
+                  <div v-if="treeData.length === 0" class="dropdown-empty">No projects</div>
+                  <DropdownItem
+                    v-for="worktree in treeData"
+                    :key="worktree.directory"
+                    :value="worktree.directory"
+                    :active="worktree.directory === projectDirectory"
                   >
-                    <Icon icon="lucide:x" />
-                  </button>
-                </template>
-              </DropdownSearch>
-
-              <div class="tree-content">
-                <div v-if="displayedTree.length === 0" class="tree-empty">
-                  {{ searchQuery ? 'No matching sessions' : 'No worktrees' }}
-                </div>
-
-                <div
-                  v-for="worktree in displayedTree"
-                  :key="worktree.directory"
-                  class="tree-worktree"
-                  :style="worktreeAccentStyle(worktree)"
-                >
-                  <div class="tree-worktree-header">
-                    <div class="tree-header-main">
+                    <div class="dropdown-item-main">
                       <Icon
                         :icon="worktree.projectId === 'global' ? 'lucide:globe' : 'lucide:package'"
-                        class="tree-header-icon"
+                        class="dropdown-item-icon"
+                        :width="14"
+                        :height="14"
                       />
-                      <div class="tree-label">
-                        <span class="tree-label-name" :title="worktree.directory">{{
-                          worktree.name || directoryBasename(worktree.directory)
-                        }}</span>
-                        <small class="tree-label-type" :title="worktree.directory">{{
-                          shortenPath(worktree.directory)
-                        }}</small>
-                      </div>
+                      <span class="dropdown-item-label">{{
+                        worktree.name || directoryBasename(worktree.directory)
+                      }}</span>
                     </div>
-                    <button
-                      v-if="worktree.projectId && worktree.projectId !== 'global'"
-                      type="button"
-                      class="tree-action-button worktree-settings"
-                      title="Project settings"
-                      @click.stop="
-                        $emit('edit-project', {
-                          projectId: worktree.projectId,
-                          worktree: worktree.directory,
-                        })
-                      "
-                    >
-                      <Icon icon="lucide:settings" :width="14" :height="14" />
-                    </button>
-                  </div>
-
-                  <div
-                    v-for="sandbox in worktree.sandboxes"
-                    :key="sandbox.directory"
-                    class="tree-sandbox"
+                    <div class="dropdown-actions">
+                      <button
+                        v-if="worktree.projectId && worktree.projectId !== 'global'"
+                        type="button"
+                        class="tree-action-button worktree-settings"
+                        title="Project settings"
+                        @click.stop="
+                          $emit('edit-project', {
+                            projectId: worktree.projectId,
+                            worktree: worktree.directory,
+                          });
+                          close();
+                        "
+                      >
+                        <Icon icon="lucide:settings" :width="14" :height="14" />
+                      </button>
+                    </div>
+                  </DropdownItem>
+                </div>
+                <div class="dropdown-footer">
+                  <button
+                    type="button"
+                    class="dropdown-footer-button"
+                    @click="handleOpenDirectory(close)"
                   >
-                    <div class="tree-sandbox-header">
-                      <div class="tree-header-main">
-                        <Icon
-                          :icon="
-                            worktree.projectId === 'global' ? 'lucide:folder' : 'lucide:git-branch'
-                          "
-                          class="tree-header-icon"
-                        />
-                        <div class="tree-label">
-                          <span class="tree-label-name" :title="sandbox.directory">{{
-                            sandbox.branch || directoryBasename(sandbox.directory)
-                          }}</span>
-                          <small class="tree-label-type" :title="sandbox.directory">{{
-                            shortenPath(sandbox.directory)
-                          }}</small>
-                        </div>
-                      </div>
-                      <div class="tree-actions">
-                        <button
-                          type="button"
-                          class="tree-action-button new-session"
-                          title="New session"
-                          @click.stop="
-                            handleCreateSessionIn(worktree.directory, sandbox.directory, close)
-                          "
-                        >
-                          <Icon icon="lucide:message-circle-plus" :width="16" :height="16" />
-                        </button>
-                        <button
-                          v-if="worktree.projectId !== 'global'"
-                          type="button"
-                          class="tree-action-button fork"
-                          title="Create a new sandbox"
-                          @click.stop="handleCreateWorktree(sandbox.directory, close)"
-                        >
-                          <Icon icon="lucide:git-branch-plus" :width="16" :height="16" />
-                        </button>
-                        <button
-                          v-if="
-                            canDeleteSandbox(sandbox.directory, worktree.directory) &&
-                            worktree.projectId !== 'global'
-                          "
-                          type="button"
-                          class="tree-action-button danger"
-                          @click.stop="handleSandboxDelete(sandbox.directory, close)"
-                        >
-                          <Icon icon="lucide:trash-2" :width="16" :height="16" />
-                        </button>
-                      </div>
+                    <Icon icon="lucide:folder-open" :width="14" :height="14" />
+                    Open project…
+                  </button>
+                </div>
+              </template>
+            </Dropdown>
+          </div>
+
+          <!-- Worktree dropdown -->
+          <div class="top-field">
+            <Dropdown
+              v-model:open="worktreeDropdownOpen"
+              class="worktree-dropdown-root tree-dropdown-root"
+              :label="selectedWorktreeLabel"
+              placeholder="Select worktree"
+              title="Select worktree"
+              :disabled="!projectDirectory"
+              auto-close
+              @select="onWorktreeSelect"
+            >
+              <template #label>
+                <span v-if="selectedWorktreeDisplay" class="selected-label">
+                  <Icon
+                    :icon="selectedWorktreeDisplay.icon"
+                    :width="14"
+                    :height="14"
+                  />
+                  <span class="selected-title">{{ selectedWorktreeDisplay.branch }}</span>
+                </span>
+                <span v-else class="selected-title">Select worktree</span>
+              </template>
+              <template #default="{ close }">
+                <div class="dropdown-list">
+                  <div v-if="currentSandboxes.length === 0" class="dropdown-empty">
+                    No worktrees
+                  </div>
+                  <DropdownItem
+                    v-for="sandbox in currentSandboxes"
+                    :key="sandbox.directory"
+                    :value="sandbox.directory"
+                    :active="sandbox.directory === activeDirectory"
+                  >
+                    <div class="dropdown-item-main">
+                      <Icon
+                        :icon="
+                          currentWorktree?.projectId === 'global'
+                            ? 'lucide:folder'
+                            : 'lucide:git-branch'
+                        "
+                        class="dropdown-item-icon"
+                        :width="14"
+                        :height="14"
+                      />
+                      <span class="dropdown-item-label">{{
+                        sandbox.branch || directoryBasename(sandbox.directory)
+                      }}</span>
+                    </div>
+                    <div class="dropdown-actions">
+                      <button
+                        v-if="sandbox.branch"
+                        type="button"
+                        class="dropdown-copy"
+                        @click.stop="copyBranch(sandbox.branch)"
+                      >
+                        Copy
+                      </button>
+                      <span v-else class="dropdown-action-placeholder"></span>
+                      <button
+                        v-if="canDeleteSandbox(sandbox.directory, currentWorktree?.directory ?? '')"
+                        type="button"
+                        class="dropdown-delete"
+                        @click.stop="handleSandboxDelete(sandbox.directory, close)"
+                      >
+                        Delete
+                      </button>
+                      <span v-else class="dropdown-action-placeholder"></span>
+                    </div>
+                  </DropdownItem>
+                </div>
+              </template>
+            </Dropdown>
+            <button
+              type="button"
+              class="control-button"
+              :disabled="!projectDirectory"
+              @click="$emit('create-worktree-from', projectDirectory)"
+              title="Create a new sandbox"
+            >
+              <Icon icon="lucide:git-branch-plus" :width="14" :height="14" />
+            </button>
+          </div>
+
+          <!-- Session dropdown -->
+          <div class="top-field">
+            <Dropdown
+              v-model:open="sessionDropdownOpen"
+              class="session-dropdown-root tree-dropdown-root"
+              :label="dropdownLabel"
+              placeholder="Select session"
+              title="Select session (Ctrl-G)"
+              :disabled="!activeDirectory"
+              auto-close
+              :popup-style="{ minWidth: '380px', width: 'min(520px, 90vw)', maxWidth: '90vw' }"
+              popup-class="max-lg:left-0! max-lg:w-screen! max-lg:min-w-0! max-lg:max-w-none!"
+              @select="onSessionSelect"
+            >
+              <template #label>
+                <span v-if="selectedDisplay" class="selected-label">
+                  <span class="selected-status-icon">{{
+                    sessionStatusIcon(selectedDisplay.status)
+                  }}</span>
+                  <span class="selected-title">{{ selectedDisplay.title }}</span>
+                  <span class="selected-branch-badge">
+                    <Icon icon="lucide:git-branch" :width="11" :height="11" />
+                    {{ selectedDisplay.branch }}
+                  </span>
+                </span>
+                <span v-else class="selected-title">Select session</span>
+              </template>
+              <template #default="{ close }">
+                <div class="session-menu">
+                  <DropdownSearch
+                    v-model="searchQuery"
+                    placeholder="Search sessions..."
+                    class="session-search tree-search"
+                  >
+                    <template #before>
+                      <Icon icon="lucide:search" class="search-icon" />
+                    </template>
+                    <template #after>
+                      <button
+                        v-if="searchQuery"
+                        type="button"
+                        class="clear-search"
+                        @click.stop="searchQuery = ''"
+                      >
+                        <Icon icon="lucide:x" />
+                      </button>
+                    </template>
+                  </DropdownSearch>
+
+                  <div class="session-list tree-content">
+                    <div v-if="displayedSessions.length === 0" class="session-empty tree-empty">
+                      {{ searchQuery ? 'No matching sessions' : 'No sessions' }}
                     </div>
 
                     <div
-                      v-for="session in sandbox.sessions"
+                      v-for="session in displayedSessions"
                       :key="session.id"
-                      class="tree-session-row"
+                      class="session-row tree-session-row"
                     >
                       <DropdownItem
-                        :href="sessionShareHref(worktree.projectId, session.id)"
-                        :value="{
-                          projectId: worktree.projectId,
-                          worktree: worktree.directory,
-                          directory: sandbox.directory,
-                          sessionId: session.id,
-                        }"
+                        :href="sessionShareHref(currentWorktree?.projectId, session.id)"
+                        :value="session.id"
                         :active="session.id === selectedSessionId"
                       >
                         <div class="tree-session-main">
@@ -305,31 +372,20 @@
                     </div>
                   </div>
                 </div>
-              </div>
+              </template>
+            </Dropdown>
+            <button
+              type="button"
+              class="control-button new-session-button"
+              :disabled="!selectedSessionId"
+              @click="$emit('new-session')"
+              title="New session (Ctrl-;)"
+            >
+              <Icon icon="lucide:message-circle-plus" :width="16" :height="16" />
+            </button>
+          </div>
+        </div>
 
-              <div class="tree-footer">
-                <button
-                  type="button"
-                  class="tree-footer-button"
-                  @click="handleOpenDirectory(close)"
-                >
-                  <Icon icon="lucide:folder-open" :width="14" :height="14" />
-                  Open project…
-                </button>
-              </div>
-            </div>
-          </template>
-        </Dropdown>
-
-        <button
-          type="button"
-          class="control-button new-session-button"
-          :disabled="!selectedSessionId"
-          @click="$emit('new-session')"
-          title="New session (Ctrl-;)"
-        >
-          <Icon icon="lucide:message-circle-plus" :width="16" :height="16" />
-        </button>
         <button
           type="button"
           class="control-button open-shell-button"
@@ -471,21 +527,31 @@ const emit = defineEmits<{
 }>();
 
 const menuOpen = ref(false);
-const treeDropdownOpen = ref(false);
+const projectDropdownOpen = ref(false);
+const worktreeDropdownOpen = ref(false);
+const sessionDropdownOpen = ref(false);
 const tagEditorSessionId = ref<string | null>(null);
+const searchQuery = ref('');
+const isShiftPressed = ref(false);
 
-const allTags = computed(() => {
-  const set = new Set<string>();
-  for (const tags of Object.values(props.sessionTags ?? {})) {
-    for (const tag of tags) {
-      set.add(tag);
-    }
+watch(projectDropdownOpen, (open) => {
+  if (open) {
+    worktreeDropdownOpen.value = false;
+    sessionDropdownOpen.value = false;
   }
-  return Array.from(set).sort((a, b) => a.localeCompare(b));
 });
 
-watch(treeDropdownOpen, (open) => {
+watch(worktreeDropdownOpen, (open) => {
   if (open) {
+    projectDropdownOpen.value = false;
+    sessionDropdownOpen.value = false;
+  }
+});
+
+watch(sessionDropdownOpen, (open) => {
+  if (open) {
+    projectDropdownOpen.value = false;
+    worktreeDropdownOpen.value = false;
     searchQuery.value = '';
   }
   if (!open) {
@@ -495,15 +561,15 @@ watch(treeDropdownOpen, (open) => {
 });
 
 function openSessionDropdown() {
-  treeDropdownOpen.value = true;
+  sessionDropdownOpen.value = true;
 }
 
 function closeSessionDropdown() {
-  treeDropdownOpen.value = false;
+  sessionDropdownOpen.value = false;
 }
 
 function toggleSessionDropdown() {
-  treeDropdownOpen.value = !treeDropdownOpen.value;
+  sessionDropdownOpen.value = !sessionDropdownOpen.value;
 }
 
 defineExpose({ openSessionDropdown, closeSessionDropdown, toggleSessionDropdown });
@@ -513,12 +579,42 @@ function onMenuSelect(value: unknown) {
   else if (value === 'logout') emit('logout');
 }
 
-const MAX_WORKTREES = Infinity;
-const MAX_SANDBOXES = Infinity;
-const MAX_SESSIONS = 5;
+const currentWorktree = computed(() =>
+  props.treeData.find((w) => w.directory === props.projectDirectory),
+);
 
-const searchQuery = ref('');
-const isShiftPressed = ref(false);
+const currentSandboxes = computed(() => currentWorktree.value?.sandboxes ?? []);
+
+const currentSandbox = computed(() =>
+  currentSandboxes.value.find((s) => s.directory === props.activeDirectory),
+);
+
+const currentSessions = computed(() => currentSandbox.value?.sessions ?? []);
+
+const selectedProjectDisplay = computed(() => {
+  const w = currentWorktree.value;
+  if (!w) return null;
+  return {
+    name: w.name || directoryBasename(w.directory),
+    icon: w.projectId === 'global' ? 'lucide:globe' : 'lucide:package' as string,
+  };
+});
+
+const selectedProjectLabel = computed(() => selectedProjectDisplay.value?.name || 'Select project');
+
+const selectedWorktreeDisplay = computed(() => {
+  const s = currentSandbox.value;
+  if (!s) return null;
+  return {
+    branch: s.branch || directoryBasename(s.directory),
+    icon:
+      currentWorktree.value?.projectId === 'global'
+        ? 'lucide:folder'
+        : ('lucide:git-branch' as string),
+  };
+});
+
+const selectedWorktreeLabel = computed(() => selectedWorktreeDisplay.value?.branch || 'Select worktree');
 
 const selectedDisplay = computed(() => {
   const sid = props.selectedSessionId;
@@ -540,76 +636,95 @@ const dropdownLabel = computed(() => {
   return `${selectedDisplay.value.branch} / ${selectedDisplay.value.title}`;
 });
 
-const displayedTree = computed(() => {
+const allTags = computed(() => {
+  const set = new Set<string>();
+  for (const tags of Object.values(props.sessionTags ?? {})) {
+    for (const tag of tags) {
+      set.add(tag);
+    }
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+});
+
+const displayedSessions = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
-  let worktrees = props.treeData;
+  let sessions = currentSessions.value;
 
   if (query) {
-    worktrees = worktrees
-      .map((worktree) => {
-        const worktreeMatches = matchesQuery(
-          query,
-          worktree.directory,
-          worktree.label,
-          worktree.name,
-        );
-        const sandboxes = worktree.sandboxes
-          .map((sandbox) => {
-            const sandboxMatches = matchesQuery(query, sandbox.directory, sandbox.branch);
-            const sessions = sandbox.sessions.filter((session) => {
-              const sessionTagsText = props.sessionTags?.[session.id]?.join(' ') ?? '';
-              const sessionContent = props.sessionSearchContents?.[session.id] ?? '';
-              return (
-                worktreeMatches ||
-                sandboxMatches ||
-                matchesQuery(
-                  query,
-                  session.title,
-                  session.slug,
-                  session.id,
-                  session.archivedAt ? 'archived' : undefined,
-                  session.timeCreated ? formatSessionTime(session.timeCreated) : undefined,
-                  session.timeUpdated ? formatSessionTime(session.timeUpdated) : undefined,
-                  sessionTagsText,
-                  sessionContent,
-                )
-              );
-            });
-            if (!worktreeMatches && !sandboxMatches && sessions.length === 0) return null;
-            return {
-              ...sandbox,
-              sessions: worktreeMatches || sandboxMatches ? sandbox.sessions : sessions,
-            };
-          })
-          .filter((sandbox): sandbox is TopPanelSandbox => sandbox !== null);
-
-        if (!worktreeMatches && sandboxes.length === 0) return null;
-        return { ...worktree, sandboxes };
-      })
-      .filter((worktree): worktree is TopPanelWorktree => worktree !== null);
+    sessions = sessions.filter((session) => {
+      const sessionTagsText = props.sessionTags?.[session.id]?.join(' ') ?? '';
+      const sessionContent = props.sessionSearchContents?.[session.id] ?? '';
+      return matchesQuery(
+        query,
+        session.title,
+        session.slug,
+        session.id,
+        session.archivedAt ? 'archived' : undefined,
+        session.timeCreated ? formatSessionTime(session.timeCreated) : undefined,
+        session.timeUpdated ? formatSessionTime(session.timeUpdated) : undefined,
+        sessionTagsText,
+        sessionContent,
+      );
+    });
   } else {
-    worktrees = worktrees
-      .map((worktree) => ({
-        ...worktree,
-        sandboxes: worktree.sandboxes.map((sandbox) => ({
-          ...sandbox,
-          sessions: sandbox.sessions.filter((session) => !session.archivedAt),
-        })),
-      }))
-      .filter((worktree) => worktree.sandboxes.some((sandbox) => sandbox.sessions.length > 0));
+    sessions = sessions.filter((session) => !session.archivedAt);
   }
 
-  return worktrees.slice(0, MAX_WORKTREES).map((worktree) => ({
-    ...worktree,
-    sandboxes: worktree.sandboxes
-      .filter((sandbox) => worktree.projectId !== 'global' || sandbox.sessions.length > 0)
-      .slice(0, MAX_SANDBOXES)
-      .map((sandbox) => ({
-        ...sandbox,
-        sessions: sandbox.sessions.slice(0, MAX_SESSIONS),
-      })),
-  }));
+  return sessions;
 });
+
+function onProjectSelect(directory: unknown) {
+  if (typeof directory !== 'string') return;
+  const worktree = props.treeData.find((w) => w.directory === directory);
+  if (!worktree) return;
+  const sandbox = worktree.sandboxes[0];
+  if (!sandbox) return;
+  const session = sandbox.sessions[0];
+  if (session) {
+    emit('select-session', {
+      projectId: worktree.projectId,
+      worktree: worktree.directory,
+      directory: sandbox.directory,
+      sessionId: session.id,
+    });
+  } else {
+    emit('new-session-in', { worktree: worktree.directory, directory: sandbox.directory });
+  }
+}
+
+function onWorktreeSelect(sandboxDirectory: unknown) {
+  if (typeof sandboxDirectory !== 'string') return;
+  const sandbox = currentSandboxes.value.find((s) => s.directory === sandboxDirectory);
+  if (!sandbox) return;
+  const session = sandbox.sessions[0];
+  if (session) {
+    emit('select-session', {
+      projectId: currentWorktree.value?.projectId,
+      worktree: currentWorktree.value?.directory || '',
+      directory: sandbox.directory,
+      sessionId: session.id,
+    });
+  } else {
+    emit('new-session-in', {
+      worktree: currentWorktree.value?.directory || '',
+      directory: sandbox.directory,
+    });
+  }
+}
+
+function onSessionSelect(sessionId: unknown) {
+  if (typeof sessionId !== 'string') return;
+  const sandbox = currentSandbox.value;
+  if (!sandbox) return;
+  const session = sandbox.sessions.find((s) => s.id === sessionId);
+  if (!session) return;
+  emit('select-session', {
+    projectId: currentWorktree.value?.projectId,
+    worktree: currentWorktree.value?.directory || '',
+    directory: sandbox.directory,
+    sessionId: session.id,
+  });
+}
 
 function matchesQuery(query: string, ...fields: (string | undefined)[]) {
   const terms = query.split(/\s+/).filter(Boolean);
@@ -624,15 +739,6 @@ function sessionShareHref(projectId: string | undefined, sessionId: string) {
   if (normalizedProjectId) params.set('project', normalizedProjectId);
   if (normalizedSessionId) params.set('session', normalizedSessionId);
   return `?${params.toString()}`;
-}
-
-function shortenPath(path: string) {
-  const homePath = props.homePath || '';
-  if (homePath && path.startsWith(homePath)) {
-    const replaced = path.replace(homePath, '~');
-    return replaced || '~';
-  }
-  return path;
 }
 
 function directoryBasename(path: string) {
@@ -673,38 +779,28 @@ function canDeleteSandbox(directory: string, worktreeDirectory: string) {
   return normalizedDirectory !== normalizedWorktree;
 }
 
-function worktreeAccentStyle(worktree: TopPanelWorktree) {
-  if (!worktree.projectColor) return undefined;
-  return {
-    borderLeft: `3px solid ${worktree.projectColor}`,
-  };
-}
-
-function onTreeSelect(payload: unknown) {
-  if (!payload || typeof payload !== 'object') return;
-  const value = payload as Partial<SessionSelectPayload>;
-  if (!value.worktree || !value.directory || !value.sessionId) return;
-  emit('select-session', {
-    projectId: value.projectId,
-    worktree: value.worktree,
-    directory: value.directory,
-    sessionId: value.sessionId,
-  });
-}
-
 function handleExportSelect(format: string, sessionId: string) {
   if (format === 'markdown') emit('export-markdown', sessionId);
   else if (format === 'json') emit('export-json', sessionId);
 }
 
-function handleCreateSessionIn(worktree: string, directory: string, close: () => void) {
-  emit('new-session-in', { worktree, directory });
-  close();
+function handleSessionAction(sessionId: string, close?: () => void) {
+  if (isShiftPressed.value) {
+    handleSessionDelete(sessionId, close);
+    return;
+  }
+  emit('archive-session', sessionId);
 }
 
-function handleCreateWorktree(worktree: string, close: () => void) {
-  emit('create-worktree-from', worktree);
-  close();
+function handleSessionDelete(sessionId: string, close?: () => void) {
+  if (typeof window !== 'undefined') {
+    const session = currentSessions.value.find((item) => item.id === sessionId);
+    const label = session ? session.title || session.slug || session.id : sessionId;
+    const confirmed = window.confirm(`Delete session "${label}"?`);
+    if (!confirmed) return;
+  }
+  emit('delete-session', sessionId);
+  close?.();
 }
 
 function handleSandboxDelete(directory: string, close?: () => void) {
@@ -716,22 +812,36 @@ function handleSandboxDelete(directory: string, close?: () => void) {
   close?.();
 }
 
-function handleSessionDelete(sessionId: string, close?: () => void) {
-  if (typeof window !== 'undefined') {
-    const confirmed = window.confirm('Delete session?');
-    if (!confirmed) return;
-  }
-  emit('delete-session', sessionId);
-  close?.();
-}
+const copyToastVisible = ref(false);
+let copyToastTimer: ReturnType<typeof setTimeout> | null = null;
 
-function handleSessionAction(sessionId: string, close?: () => void) {
-  if (isShiftPressed.value) {
-    handleSessionDelete(sessionId, close);
+async function copyBranch(branch: string) {
+  const text = branch.trim();
+  if (!text) return;
+  if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    showCopyToast();
+  } catch {
     return;
   }
-  emit('archive-session', sessionId);
 }
+
+function showCopyToast() {
+  copyToastVisible.value = true;
+  if (copyToastTimer) clearTimeout(copyToastTimer);
+  copyToastTimer = setTimeout(() => {
+    copyToastVisible.value = false;
+    copyToastTimer = null;
+  }, 1400);
+}
+
+onBeforeUnmount(() => {
+  if (copyToastTimer) {
+    clearTimeout(copyToastTimer);
+    copyToastTimer = null;
+  }
+});
 
 function handleGlobalKeydown(event: KeyboardEvent) {
   isShiftPressed.value = event.shiftKey;
@@ -799,6 +909,7 @@ function handleOpenDirectory(close: () => void) {
   justify-content: center;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .top-right {
@@ -807,13 +918,33 @@ function handleOpenDirectory(close: () => void) {
   justify-content: flex-end;
 }
 
-.tree-dropdown-root {
-  flex: 0 1 680px;
-  width: min(680px, 70vw);
-  min-width: 260px;
+.top-fields {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.tree-menu {
+.top-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 340px;
+}
+
+.project-dropdown-root,
+.worktree-dropdown-root,
+.session-dropdown-root {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.session-menu {
   display: flex;
   flex-direction: column;
   background: transparent;
@@ -821,7 +952,220 @@ function handleOpenDirectory(close: () => void) {
   min-height: 0;
 }
 
-.tree-search {
+.session-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 6px 0;
+}
+
+.session-empty {
+  padding: 14px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.dropdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.dropdown-empty {
+  padding: 14px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.dropdown-item-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.dropdown-item-icon {
+  flex: 0 0 auto;
+  color: #64748b;
+}
+
+.dropdown-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.dropdown-action-placeholder {
+  width: 44px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+
+.dropdown-delete {
+  flex: 0 0 auto;
+  background: #991b1b;
+  color: #fee2e2;
+  border: 1px solid #b91c1c;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.dropdown-delete:hover {
+  background: #b91c1c;
+}
+
+.dropdown-copy {
+  flex: 0 0 auto;
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.dropdown-copy:hover {
+  background: #334155;
+}
+
+.dropdown-footer {
+  flex: 0 0 auto;
+  border-top: 1px solid #334155;
+  padding: 8px;
+  background: #0b1320;
+}
+
+.dropdown-footer-button {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #111a2c;
+  color: #e2e8f0;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dropdown-footer-button:hover {
+  background: #1d2a45;
+}
+
+.copy-toast {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 120;
+  background: #14532d;
+  color: #dcfce7;
+  border: 1px solid #166534;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+}
+
+.control-button {
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #0b1320;
+  color: #e2e8f0;
+  padding: 6px 12px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.new-session-button {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  padding: 0;
+  justify-content: center;
+  color: #86efac;
+}
+
+.new-session-button:hover,
+.open-shell-button:hover {
+  background: #1d2a45;
+}
+
+.open-shell-button {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  padding: 0;
+  justify-content: center;
+  color: #c4b5fd;
+}
+
+.notification-button {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  padding: 0;
+  justify-content: center;
+  color: #64748b;
+}
+
+.notification-button.has-notifications {
+  color: #fbbf24;
+}
+
+.notification-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.tree-dropdown-root {
+  flex: 0 1 680px;
+  width: min(680px, 70vw);
+  min-width: 260px;
+}
+
+.project-dropdown-root,
+.worktree-dropdown-root {
+  max-width: 180px;
+}
+
+.session-dropdown-root {
+  max-width: 260px;
+}
+
+.session-search {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -836,13 +1180,13 @@ function handleOpenDirectory(close: () => void) {
   color: #64748b;
 }
 
-.tree-search :deep(.ui-dropdown-search-input) {
+.session-search :deep(.ui-dropdown-search-input) {
   border-radius: 8px;
   font-size: 12px;
   padding: 6px 8px;
 }
 
-.tree-search :deep(.ui-dropdown-search-input):focus {
+.session-search :deep(.ui-dropdown-search-input):focus {
   background: rgba(30, 64, 175, 0.15);
 }
 
@@ -855,133 +1199,8 @@ function handleOpenDirectory(close: () => void) {
   align-items: center;
 }
 
-.tree-content {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  min-height: 0;
-  padding: 6px 0;
-}
-
-.tree-worktree + .tree-worktree {
-  border-top: 1px solid #334155;
-}
-
-.tree-empty {
-  padding: 14px;
-  text-align: center;
-  color: #94a3b8;
-  font-size: 12px;
-}
-
-.tree-worktree-header,
-.tree-sandbox-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-}
-
-.tree-header-main {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  column-gap: 4px;
-  row-gap: 0;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.tree-header-icon {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  color: #64748b;
-}
-
-.tree-worktree-header {
-  padding: 6px 8px;
-}
-
-.tree-sandbox-header {
-  padding: 5px 8px 5px 24px;
-}
-
-.tree-label {
-  display: contents;
-}
-
-.tree-label-name {
-  font-size: 12px;
-  color: #e2e8f0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.tree-label-type {
-  font-size: 10px;
-  color: #64748b;
-  flex-basis: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tree-actions {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  /* Reserve space for new-session + fork + delete buttons so layout doesn't shift when delete is hidden */
-  min-width: calc(24px + 6px + 24px + 6px + 24px);
-}
-
-.tree-action-button.new-session {
-  color: #86efac;
-}
-
-.tree-action-button.fork {
-  color: #93c5fd;
-}
-
-.tree-action-button {
-  border: 1px solid #334155;
-  border-radius: 6px;
-  background: #111a2c;
-  color: #cbd5e1;
-  font-size: 10px;
-  line-height: 1;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.tree-action-button:hover {
-  background: #1d2a45;
-}
-
-.tree-action-button.worktree-settings {
-  color: #94a3b8;
-}
-
-.tree-action-button.danger {
-  color: #fca5a5;
-}
-
-.tree-action-button.archive {
-  color: #c4b5fd;
-}
-
-/* Session rows: wrapper provides indentation via :deep() */
 .tree-session-row :deep(.ui-dropdown-item) {
-  padding-left: 40px;
+  padding-left: 12px;
   border-radius: 0;
   color: #e2e8f0;
 }
@@ -994,90 +1213,6 @@ function handleOpenDirectory(close: () => void) {
 .tree-session-row :deep(.ui-dropdown-item.is-active) {
   background: rgba(59, 130, 246, 0.2);
   border: 1px solid rgba(59, 130, 246, 0.45);
-}
-
-/* ===== Tree branch connectors ===== */
-
-/* --- Worktree → Sandbox branches --- */
-.tree-sandbox {
-  position: relative;
-}
-
-/* Non-last sandbox: ├── (vertical line continues to next sibling) */
-.tree-sandbox:not(:last-child)::before {
-  content: '';
-  position: absolute;
-  left: 15px;
-  top: 0;
-  bottom: 0;
-  border-left: 1px solid rgba(71, 85, 105, 0.5);
-  pointer-events: none;
-}
-
-.tree-sandbox:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  left: 15px;
-  top: 13px;
-  width: 7px;
-  height: 0;
-  border-top: 1px solid rgba(71, 85, 105, 0.5);
-  pointer-events: none;
-}
-
-/* Last sandbox: └── (L-shape, no line below) */
-.tree-sandbox:last-child::before {
-  content: '';
-  position: absolute;
-  left: 15px;
-  top: 0;
-  width: 7px;
-  height: 13px;
-  border-left: 1px solid rgba(71, 85, 105, 0.5);
-  border-bottom: 1px solid rgba(71, 85, 105, 0.5);
-  border-bottom-left-radius: 4px;
-  pointer-events: none;
-}
-
-/* --- Sandbox → Session branches --- */
-.tree-session-row {
-  position: relative;
-}
-
-/* Non-last session: ├── */
-.tree-session-row:not(:last-child)::before {
-  content: '';
-  position: absolute;
-  left: 31px;
-  top: 0;
-  bottom: 0;
-  border-left: 1px solid rgba(71, 85, 105, 0.4);
-  pointer-events: none;
-}
-
-.tree-session-row:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  left: 31px;
-  top: 14px;
-  width: 7px;
-  height: 0;
-  border-top: 1px solid rgba(71, 85, 105, 0.4);
-  pointer-events: none;
-}
-
-/* Last session: └── */
-.tree-session-row:last-child::before {
-  content: '';
-  position: absolute;
-  left: 31px;
-  top: 0;
-  width: 7px;
-  height: 14px;
-  border-left: 1px solid rgba(71, 85, 105, 0.4);
-  border-bottom: 1px solid rgba(71, 85, 105, 0.4);
-  border-bottom-left-radius: 4px;
-  pointer-events: none;
 }
 
 .tree-session-main {
@@ -1186,101 +1321,9 @@ function handleOpenDirectory(close: () => void) {
 }
 
 .session-tag-editor {
-  padding: 8px 8px 8px 40px;
+  padding: 8px 8px 8px 12px;
   background: rgba(15, 23, 42, 0.6);
   border-top: 1px solid #334155;
-}
-
-.tree-footer {
-  flex: 0 0 auto;
-  border-top: 1px solid #334155;
-  padding: 8px;
-  background: #0b1320;
-}
-
-.tree-footer-button {
-  width: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  background: #111a2c;
-  color: #e2e8f0;
-  padding: 6px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.tree-footer-button:hover {
-  background: #1d2a45;
-}
-
-.control-button {
-  border: 1px solid #334155;
-  border-radius: 8px;
-  background: #0b1320;
-  color: #e2e8f0;
-  padding: 6px 12px;
-  font-size: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-}
-
-.new-session-button {
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-  padding: 0;
-  justify-content: center;
-  color: #86efac;
-}
-
-.new-session-button:hover,
-.open-shell-button:hover {
-  background: #1d2a45;
-}
-
-.open-shell-button {
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-  padding: 0;
-  justify-content: center;
-  color: #c4b5fd;
-}
-
-.notification-button {
-  position: relative;
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-  padding: 0;
-  justify-content: center;
-  color: #64748b;
-}
-
-.notification-button.has-notifications {
-  color: #fbbf24;
-}
-
-.notification-badge {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: #ef4444;
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 16px;
-  text-align: center;
 }
 
 .tree-dropdown-root :deep(.ui-dropdown-button) {

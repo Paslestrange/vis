@@ -232,8 +232,8 @@
       @add="mcpServers.addServer"
       @update="mcpServers.updateServer"
       @remove="mcpServers.removeServer"
-      @connect="(name: string) => opencodeApi.connectMcpServer(name, activeDirectory.value || undefined)"
-      @disconnect="(name: string) => opencodeApi.disconnectMcpServer(name, activeDirectory.value || undefined)"
+      @connect="(name: string) => opencodeApi.connectMcpServer(name, activeDirectory || undefined)"
+      @disconnect="(name: string) => opencodeApi.disconnectMcpServer(name, activeDirectory || undefined)"
     />
     <ProjectSettingsDialog
       :open="!!editingProject"
@@ -288,7 +288,7 @@ import * as opencodeApi from './utils/opencode';
 import { opencodeTheme, resolveTheme, resolveAgentColor } from './utils/theme';
 import { useCredentials } from './composables/useCredentials';
 import { useSettings } from './composables/useSettings';
-import { StorageKeys, storageGet, storageRemove, storageSet } from './utils/storageKeys';
+import { StorageKeys, storageGet, storageKey, storageRemove, storageSet } from './utils/storageKeys';
 import { toErrorMessage } from './utils/formatters';
 import { runDebugCommand } from './utils/debugCommands';
 import { useShellManager } from './composables/useShellManager';
@@ -317,10 +317,16 @@ import AnalyticsPanel from './components/AnalyticsPanel.vue';
 const credentials = useCredentials();
 const { suppressAutoWindows } = useSettings();
 const { mode, resolvedMode, setMode } = useTheme();
+const shikiTheme = computed(() => (resolvedMode.value === 'light' ? 'github-light' : 'github-dark'));
 const FOLLOW_THRESHOLD_PX = 24;
 const REASONING_CLOSE_DELAY_MS = 3000;
 const SUBAGENT_CLOSE_DELAY_MS = 3000;
 const ATTACHMENT_MIME_ALLOWLIST = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
+const sendStatus = ref('Ready');
+const sessionError = ref('');
+const connectionState = ref<'connecting' | 'bootstrapping' | 'ready' | 'reconnecting' | 'error'>('connecting');
+const uiInitState = ref<'loading' | 'ready' | 'error' | 'login'>('loading');
 
 const appEl = ref<HTMLElement | null>(null);
 const appBodyEl = ref<HTMLElement | null>(null);
@@ -380,14 +386,17 @@ function resolveProjectIdForSession(sessionId: string): string {
   return '';
 }
 
+const ge = useGlobalEvents(credentials);
+const msg = useMessages();
+
 const messageMeta = useMessageMeta({
   notificationPermissionRequested, sessions: () => sessions.value,
   resolveProjectIdForSession,
   sessionLabel: (s: any) => s.title || s.slug || s.id, switchSessionSelection,
   selectedProjectId, selectedSessionId, providers, userMessageMetaById,
-  userMessageTimeById, msg: undefined as any, primaryHistoryRequestId,
+  userMessageTimeById, msg, primaryHistoryRequestId,
   getSelectedWorktreeDirectory: () => activeDirectory.value.trim(), notifyContentChange,
-  ge: undefined as any,
+  ge: ge as any,
 });
 
 const analytics = useAnalytics();
@@ -395,15 +404,12 @@ ge.on('message.updated', (payload) => {
   if (payload.info.role !== 'assistant') return;
   analytics.recordUsage(payload.info.sessionID, resolveProjectIdForSession(payload.info.sessionID), payload.info);
 });
-
-const ge = useGlobalEvents(credentials);
 ge.setWorkerMessageHandler(serverState.handleStateMessage);
 serverState.setNotificationShowHandler((message) => { messageMeta.showBrowserNotification(message.projectId, message.sessionId, message.kind); });
 const deltaAccumulator = useDeltaAccumulator();
 deltaAccumulator.listen(ge);
 const sessionScope = ge.session(selectedSessionId, computed(() => { const r: Record<string, string | undefined> = {}; sessionParentById.value.forEach((parentId, sessionId) => { r[sessionId] = parentId; }); return r; }));
 const mainSessionScope = ge.mainSession(selectedSessionId);
-const msg = useMessages();
 msg.bindScope(mainSessionScope);
 
 watch(
@@ -442,12 +448,12 @@ subagentWindows.bindScope(sessionScope);
 (messageMeta as any).msg = msg;
 (messageMeta as any).ge = ge;
 
+const { treeNodes, expandedTreePaths, expandedTreePathSet, selectedTreePath, treeLoading, treeError, gitStatus, gitStatusByPath, refreshGitStatus, reloadTree, toggleTreeDirectory, selectTreeFile, feed, branchEntries, branchListLoading, refreshBranchEntries } = useFileTree({ activeDirectory });
+
 const shellManager = useShellManager(fw, { getDirectory: () => activeDirectory.value, getCanvasEl: () => toolWindowCanvasEl.value, onTreeCommandSuccess: () => { void refreshGitStatus(); void refreshBranchEntries(); }, log: (message: unknown, error?: unknown) => { if (error !== undefined) console.log(message, error); else console.log(message); } });
 appLayout.shellManager = shellManager as any;
 
 const fileViewers = useFileViewers(fw, { getDirectory: () => activeDirectory.value, getShikiTheme: () => shikiTheme.value, resolvePath: (path?: string) => { if (!path) return undefined; const np = path.replace(/\/+$/, ''); const base = activeDirectory.value.replace(/\/+$/, ''); if (!base) return np; if (!np.startsWith('/')) return np; if (np === base) return '.'; const prefix = `${base}/`; if (np.startsWith(prefix)) return np.slice(prefix.length); return np; } });
-
-const { treeNodes, expandedTreePaths, expandedTreePathSet, selectedTreePath, treeLoading, treeError, gitStatus, gitStatusByPath, refreshGitStatus, reloadTree, toggleTreeDirectory, selectTreeFile, feed, branchEntries, branchListLoading, refreshBranchEntries } = useFileTree({ activeDirectory });
 
 const currentProject = computed(() => serverState.projects[selectedProjectId.value]);
 const { worktrees, loading: worktreesLoading, refreshWorktrees } = useWorktrees({ activeDirectory, currentProject, activeGitBranchInfo: computed(() => gitStatus.value?.branch ?? null) });
@@ -469,7 +475,7 @@ const { upsertPermissionEntry, removePermissionEntry, prunePermissionEntries, fe
 const { upsertQuestionEntry, removeQuestionEntry, pruneQuestionEntries, fetchPendingQuestions } = useQuestions({ fw, allowedSessionIds, activeDirectory, ensureConnectionReady: () => true, getTextContent: (messageId: string) => msg.getTextContent(messageId) || '' });
 const { upsertMcpPermissionEntry, removeMcpPermissionEntry, pruneMcpPermissionEntries } = useMcpPermissions({ fw, allowedSessionIds, activeDirectory, ensureConnectionReady: () => true });
 
-const homePath = ref(''); const serverWorktreePath = ref(''); const shikiTheme = computed(() => (resolvedMode.value === 'light' ? 'github-light' : 'github-dark')); const sidePanelCollapsed = ref(false);
+const homePath = ref(''); const serverWorktreePath = ref(''); const sidePanelCollapsed = ref(false);
 const isShortcutHelpOpen = ref(false);
 const sidePanelActiveTab = ref<'todo' | 'tree' | 'worktrees'>('tree');
 const { inputHeight, sidePanelWidth } = appLayout;
@@ -488,22 +494,24 @@ const isThinking = computed(() => { const selected = selectedSessionId.value; co
 const filteredSessions = computed(() => sessions.value); const hasSession = computed(() => sessions.value.length > 0);
 const notificationSessionOrder = ref<string[]>([]);
 
-const outputHandlers = useOutputHandlers({ shellManager, fw, toolWindowCanvasEl, inputEl, appEl, inputPanelRef, outputPanelRef, sidePanelCollapsed, sidePanelActiveTab, sidePanelWidth, shikiTheme, sendStatus: ref('Ready'), serverState, sessions, selectedSessionId, activeDirectory, projectDirectory, notificationSessionOrder, sessionParentById, allowedSessionIds, busyDescendantSessionIds, runDebugCommand, autoScroller: { enableFollow, resetFollow, pauseFollow: () => {}, resumeFollow, scrollToBottom: scrollOutputPanelToBottom }, notifyContentChange, ge, sessionScope, mainSessionScope, connectionState: ref('connecting'), uiInitState: ref('loading'), homePath });
+const outputHandlers = useOutputHandlers({ shellManager, fw, toolWindowCanvasEl, inputEl, appEl, inputPanelRef, outputPanelRef, sidePanelCollapsed, sidePanelActiveTab, sidePanelWidth, shikiTheme, sendStatus, serverState, sessions, selectedSessionId, activeDirectory, projectDirectory, notificationSessionOrder, sessionParentById, allowedSessionIds, busyDescendantSessionIds, runDebugCommand, autoScroller: { enableFollow, resetFollow, resumeFollow, scrollToBottom: scrollOutputPanelToBottom }, notifyContentChange, ge, sessionScope, mainSessionScope, connectionState, uiInitState, homePath });
 const { handleWindowResize, syncFloatingExtent, updateFloatingExtentObserver, runAppDebugCommand, handleOutputPanelMessageRendered, handleOutputPanelResumeFollow, handleOutputPanelContentResized, handleOutputPanelInitialRenderComplete, handleFloatingWindowClose, getBundledThemeNames, pickShikiTheme, normalizeDirectory, replaceHomePrefix, resolveWorktreeRelativePath, sessionLabel, getSelectedWorktreeDirectory, requireSelectedWorktree, ensureConnectionReady, readSidePanelCollapsed, persistSidePanelCollapsed, readSidePanelTab, persistSidePanelTab, toggleSidePanelCollapsed, setSidePanelTab, focusInput } = outputHandlers;
 sidePanelCollapsed.value = readSidePanelCollapsed(); sidePanelActiveTab.value = readSidePanelTab();
 
 const mcpServers = useMcpServers();
 const isMcpPanelOpen = ref(false);
+const sessionStatus = useSessionStatus({ selectedSessionId, allowedSessionIds, updateReasoningExpiry });
+const { retryStatus, formatRetryTime, applySessionStatusEvent } = sessionStatus;
 
-const projectNav = useProjectSessionNav({ serverState, openCodeApi, sessionSelection, homePath, sendStatus: ref('Ready'), ensureConnectionReady, fetchCommands, bootstrapReady, sessionsByProject, fw, ge, msg, reasoning, subagentWindows, shellManager, retryStatus: ref(null), todosBySessionId, todoLoadingBySessionId, todoErrorBySessionId, focusInput, fetchPendingPermissions, fetchPendingQuestions, allowedSessionIds, sessions, sessionParentById, sessionLabel, isBootstrapping: ref(false), uiInitState: ref('loading'), messageMeta, resetFollow, scrollOutputPanelToBottom, reloadTodosForAllowedSessions, sessionError: ref(''), notificationSessionOrder });
+const projectNav = useProjectSessionNav({ serverState, openCodeApi, sessionSelection, homePath, sendStatus, ensureConnectionReady, fetchCommands, bootstrapReady, sessionsByProject, fw, ge, msg, reasoning, subagentWindows, shellManager, retryStatus, todosBySessionId, todoLoadingBySessionId, todoErrorBySessionId, focusInput, fetchPendingPermissions, fetchPendingQuestions, allowedSessionIds, sessions, sessionParentById, sessionLabel, isBootstrapping: ref(false), uiInitState, messageMeta, resetFollow, scrollOutputPanelToBottom, reloadTodosForAllowedSessions, sessionError, notificationSessionOrder });
 const { editingProject, isProjectPickerOpen, isSettingsOpen, projectError, worktreeError, navigableTree, topPanelTreeData, currentProjectColor, currentProjectName, editingProjectMeta, notificationSessions, todoPanelSessions, createNewSession, createWorktreeFromWorktree, deleteWorktree, handleProjectDirectorySelect, handleNewSessionInSandbox, openProjectPicker, handleEditProject, handleSaveProject, bootstrapSelections, handleTopPanelSessionSelect, handleNotificationSessionSelect, reloadSelectedSessionState, validateSelectedSession, pickPreferredSessionId, sessionSortKey, readQuerySelection, replaceQuerySelection, createSessionInDirectory, initProjectNameFromPackageJson, resolveProjectIdForDirectory } = projectNav;
 
-const composerState = useComposerState({ selectedSessionId, selectedModel, selectedThinking, selectedMode, modelOptions, agentOptions, thinkingOptions, agents, applyAgentDefaults, applyModelVariantSelection, resolveDefaultAgentModel, composerDrafts, msg, sendStatus: ref('Ready'), attachmentMimeAllowlist: ATTACHMENT_MIME_ALLOWLIST, opencodeTheme, resolveTheme, resolveAgentColor, storageKey, StorageKeys, userMessageMetaById });
+const composerState = useComposerState({ selectedSessionId, selectedModel, selectedThinking, selectedMode, modelOptions, agentOptions, thinkingOptions, agents, applyAgentDefaults, applyModelVariantSelection, resolveDefaultAgentModel, composerDrafts, msg, sendStatus, attachmentMimeAllowlist: ATTACHMENT_MIME_ALLOWLIST, opencodeTheme, resolveTheme, resolveAgentColor, storageKey, StorageKeys, userMessageMetaById });
 const { messageInput, attachments, handleMessageInputUpdate, persistComposerDraftForCurrentContext, clearComposerDraftForCurrentContext, restoreComposerDraftForContext, handleComposerDraftStorage, buildComposerDraftFromUserMessage, handleSelectedModeUpdate, handleSelectedModelUpdate, handleSelectedThinkingUpdate, handleApplyHistoryEntry, handleAddAttachments, removeAttachment, generateAttachmentId, readFileAsDataUrl, hasAgentOptions, hasModelOptions, hasThinkingOptions, canAttach, visibleAgents, resolveAgentColorForName, resolveModelMetaForPath, currentAgentColor } = composerState;
 
-const sessionMutations = useSessionMutations({ selectedProjectId, selectedSessionId, activeDirectory, sessionError: ref(''), sendStatus: ref('Ready'), ensureConnectionReady, openCodeApi, switchSessionSelection, reloadSelectedSessionState, seedForkedSessionComposerDraft: buildComposerDraftFromUserMessage });
+const sessionMutations = useSessionMutations({ selectedProjectId, selectedSessionId, activeDirectory, sessionError, sendStatus, ensureConnectionReady, openCodeApi, switchSessionSelection, reloadSelectedSessionState, seedForkedSessionComposerDraft: buildComposerDraftFromUserMessage });
 
-const chatActions = useChatActions({ ensureConnectionReady, activeDirectory, selectedSessionId, filteredSessions, messageInput, attachments, selectedMode, selectedModel, selectedThinking, modelOptions, parseProviderModelKey, opencodeApi: openCodeApi as any, shellManager: { openShellFromInput: (input: string) => shellManager.openShellFromInput(input) }, runAppDebugCommand, commands, requireSelectedWorktree, enableFollow, clearComposerDraftForCurrentContext, busyDescendantSessionIds, isThinking, uiInitState: ref('loading'), connectionState: ref('connecting'), sendStatus: ref('Ready'), pickPreferredSessionId });
+const chatActions = useChatActions({ ensureConnectionReady, activeDirectory, selectedSessionId, filteredSessions, messageInput, attachments, selectedMode, selectedModel, selectedThinking, modelOptions, parseProviderModelKey, opencodeApi: openCodeApi as any, shellManager: { openShellFromInput: (input: string) => shellManager.openShellFromInput(input) }, runAppDebugCommand, commands, requireSelectedWorktree, enableFollow, clearComposerDraftForCurrentContext, busyDescendantSessionIds, isThinking, uiInitState, connectionState, sendStatus, pickPreferredSessionId });
 const { sendMessage, sendCommand, abortSession, parseSlashCommand, findCommandByName, isSending, isAborting, commandOptions, canSend, canAbort } = chatActions;
 
 const paletteSessions = computed(() => {
@@ -571,9 +579,6 @@ async function handlePaletteExecute(result: Parameters<typeof palette['flatResul
   }
 }
 
-const sessionStatus = useSessionStatus({ selectedSessionId, allowedSessionIds, updateReasoningExpiry });
-const { retryStatus, formatRetryTime, applySessionStatusEvent } = sessionStatus;
-
 const analyticsContextLimit = computed(() => {
   const { providerID, modelID } = parseProviderModelKey(selectedModel.value);
   const limit = messageMeta.resolveProviderModelLimit(providerID, modelID);
@@ -589,8 +594,8 @@ watch(resolvedMode, async (mode) => {
 const globalShortcuts = useGlobalShortcuts({ selectedProjectId, selectedSessionId, navigableTree, switchSessionSelection, createNewSession, openShell: (input: string) => shellManager.openShellFromInput(input), notificationSessions, handleNotificationSessionSelect, focusInput, abortSession, canAbort, sidePanelCollapsed, toggleSidePanelCollapsed, startInputResize: appLayout.startInputResize, startSidePanelResize: appLayout.startSidePanelResize, isSettingsOpen, isAnalyticsOpen, isProjectPickerOpen, isShortcutHelpOpen, isCommandPaletteOpen: palette.isOpen, toggleCommandPalette: palette.toggle, topPanelRef });
 const { handleGlobalKeydown } = globalShortcuts;
 
-const appInit = useAppInit({ credentials, ge, bootstrapReady, selectedSessionId, activeDirectory, fetchProviders, fetchAgents, fetchCommands, fetchPendingPermissions, fetchPendingQuestions, bootstrapSelections, reloadSelectedSessionState, refreshGitStatus, shellManager, messageMeta, sendStatus: ref('Ready'), opencodeApi: opencodeApi as any, serverWorktreePath, homePath });
-const { uiInitState, initLoadingMessage, initErrorMessage, connectionState, reconnectingMessage, loginUrl, loginUsername, loginPassword, loginRequiresAuth, startInitialization, handleLogin, handleAbortInit, handleLogout } = appInit;
+const appInit = useAppInit({ credentials, ge, bootstrapReady, selectedSessionId, activeDirectory, fetchProviders, fetchAgents, fetchCommands, fetchPendingPermissions, fetchPendingQuestions, bootstrapSelections, reloadSelectedSessionState, refreshGitStatus, shellManager, messageMeta, sendStatus, opencodeApi: opencodeApi as any, serverWorktreePath, homePath, uiInitState, connectionState });
+const { initLoadingMessage, initErrorMessage, reconnectingMessage, loginUrl, loginUsername, loginPassword, loginRequiresAuth, startInitialization, handleLogin, handleAbortInit, handleLogout } = appInit;
 
 const statusText = computed(() => { if (connectionState.value === 'reconnecting') return reconnectingMessage.value || 'Reconnecting...'; if (retryStatus.value) return `${retryStatus.value.message} | Next: ${formatRetryTime(retryStatus.value.next)}`; if (openCodeApi.pending.value) return 'Synchronizing with SSE updates...'; return projectError.value || worktreeError.value || sessionError.value || sendStatus.value; });
 const isStatusError = computed(() => Boolean(projectError.value || worktreeError.value || sessionError.value || retryStatus.value));
@@ -710,9 +715,9 @@ async function handleExportJson(sessionId: string) {
 }
 
 useLifecycleWatches({
-  credentials, toolWindowCanvasEl, updateFloatingExtentObserver, projectDirectory, activeDirectory, selectedSessionId,
+  credentials, toolWindowCanvasEl, fw, updateFloatingExtentObserver, projectDirectory, activeDirectory, selectedSessionId,
   isBootstrapping: ref(false), bootstrapReady, pickPreferredSessionId, filteredSessions, validateSelectedSession,
-  uiInitState, syncFloatingExtent, inputPanelRef, shellManager: { restoreShellSessions: () => shellManager.restoreShellSessions() },
+  uiInitState, syncFloatingExtent, inputPanelRef, shellManager,
   reloadSelectedSessionState, selectedProjectId, messageMeta, opencodeApi: openCodeApi as any, isThinking, updateReasoningExpiry,
   selectedModel, modelOptions, thinkingOptions, selectedThinking, fetchCommands, reloadTodosForAllowedSessions, sidePanelCollapsed,
   persistSidePanelCollapsed, sidePanelActiveTab, persistSidePanelTab, allowedSessionIds, fetchProviders, ge, sessionScope, mainSessionScope,

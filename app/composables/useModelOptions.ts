@@ -1,4 +1,4 @@
-import type { Ref } from 'vue';
+import { ref, type Ref } from 'vue';
 import * as opencodeApi from '../utils/opencode';
 
 type ProviderModel = {

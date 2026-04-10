@@ -47,6 +47,8 @@ export function useAppInit(options: {
   };
   serverWorktreePath: Ref<string>;
   homePath: Ref<string>;
+  uiInitState?: Ref<'loading' | 'ready' | 'error' | 'login'>;
+  connectionState?: Ref<'connecting' | 'bootstrapping' | 'ready' | 'reconnecting' | 'error'>;
 }) {
   const {
     credentials,
@@ -68,12 +70,13 @@ export function useAppInit(options: {
     opencodeApi: opencodeApiInstance,
     serverWorktreePath,
     homePath,
+    uiInitState: externalUiInitState,
+    connectionState: externalConnectionState,
   } = options;
-
-  const uiInitState = ref<'loading' | 'ready' | 'error' | 'login'>('loading');
+  const uiInitState = externalUiInitState ?? ref<'loading' | 'ready' | 'error' | 'login'>('loading');
   const initLoadingMessage = ref('Connecting to server...');
   const initErrorMessage = ref('');
-  const connectionState = ref<'connecting' | 'bootstrapping' | 'ready' | 'reconnecting' | 'error'>(
+  const connectionState = externalConnectionState ?? ref<'connecting' | 'bootstrapping' | 'ready' | 'reconnecting' | 'error'>(
     'connecting',
   );
   const reconnectingMessage = ref('');

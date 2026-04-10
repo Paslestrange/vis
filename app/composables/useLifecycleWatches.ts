@@ -18,6 +18,7 @@ export function useLifecycleWatches(options: {
     load: () => void;
   };
   toolWindowCanvasEl: Ref<HTMLDivElement | null>;
+  fw: { open: (key: string, options: any) => void };
   updateFloatingExtentObserver: () => void;
   projectDirectory: Ref<string>;
   activeDirectory: Ref<string>;
@@ -26,14 +27,12 @@ export function useLifecycleWatches(options: {
   bootstrapReady: Ref<boolean>;
   pickPreferredSessionId: (list: any[]) => string;
   filteredSessions: ComputedRef<any[]>;
-  validateSelectedSession: () => void;
   uiInitState: Ref<'loading' | 'ready' | 'error' | 'login'>;
   syncFloatingExtent: () => void;
   inputPanelRef: Ref<{ focus: () => void } | null>;
-  shellManager: { restoreShellSessions: () => Promise<void> | void };
   reloadSelectedSessionState: () => Promise<void>;
   selectedProjectId: Ref<string>;
-  messageMeta: { syncActiveSelectionToWorker: () => void };
+  messageMeta: { syncActiveSelectionToWorker: () => void; ensureBrowserNotificationPermission: () => void };
   opencodeApi: { setBaseUrl: (url: string) => void; setAuthorization: (auth: string) => void };
   isThinking: ComputedRef<boolean>;
   updateReasoningExpiry: (sessionId: string, state: 'busy' | 'idle') => void;
@@ -106,6 +105,7 @@ export function useLifecycleWatches(options: {
   const {
     credentials,
     toolWindowCanvasEl,
+    fw,
     updateFloatingExtentObserver,
     projectDirectory,
     activeDirectory,
@@ -118,7 +118,6 @@ export function useLifecycleWatches(options: {
     uiInitState,
     syncFloatingExtent,
     inputPanelRef,
-    shellManager: shellManagerRestore,
     reloadSelectedSessionState,
     selectedProjectId,
     messageMeta,
@@ -158,12 +157,13 @@ export function useLifecycleWatches(options: {
     handleComposerDraftStorage,
     messageMetaHandleWindowAttentionChange,
     handleGlobalKeydown,
+    bootstrapSelections,
     suppressAutoWindows,
     toolWindows,
-    msg,
-    reasoning,
-    subagentWindows,
-    retryStatus,
+    msg: _msg,
+    reasoning: _reasoning,
+    subagentWindows: _subagentWindows,
+    retryStatus: _retryStatus,
     todosBySessionId,
     todoErrorBySessionId,
     normalizeTodoItems,
@@ -232,7 +232,7 @@ export function useLifecycleWatches(options: {
       nextTick(() => {
         syncFloatingExtent();
         inputPanelRef.value?.focus();
-        void shellManagerRestore.restoreShellSessions();
+        void shellManager.restoreShellSessions();
       });
     },
     { immediate: true },

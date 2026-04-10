@@ -199,6 +199,17 @@
                                 >archived</span
                               >
                             </div>
+                            <div
+                              v-if="sessionTags[session.id]?.length"
+                              class="session-tag-chips"
+                            >
+                              <span
+                                v-for="tag in sessionTags[session.id]"
+                                :key="tag"
+                                class="session-tag-chip"
+                                >{{ tag }}</span
+                              >
+                            </div>
                             <span
                               v-if="session.timeCreated || session.timeUpdated"
                               class="session-time"
@@ -207,25 +218,90 @@
                             </span>
                           </div>
                         </div>
-                        <button
-                          v-if="!session.archivedAt"
-                          type="button"
-                          class="tree-action-button session-del"
-                          :class="isShiftPressed ? 'danger' : 'archive'"
-                          :title="
-                            isShiftPressed
-                              ? 'Delete session permanently'
-                              : 'Archive session (with Shift key to delete permanently)'
-                          "
-                          @click.stop.prevent="handleSessionAction(session.id, close)"
-                        >
-                          <Icon
-                            :icon="isShiftPressed ? 'lucide:trash-2' : 'lucide:archive'"
-                            :width="16"
-                            :height="16"
-                          />
-                        </button>
+                        <div class="session-actions">
+                          <button
+                            type="button"
+                            class="tree-action-button favourite"
+                            :class="{ 'is-favourite': sessionFavourites[session.id] }"
+                            :title="sessionFavourites[session.id] ? 'Unfavourite' : 'Favourite'"
+                            @click.stop.prevent="emit('toggle-favourite', session.id)"
+                          >
+                            <Icon icon="lucide:star" :width="14" :height="14" />
+                          </button>
+                          <button
+                            type="button"
+                            class="tree-action-button tag-toggle"
+                            :class="{ active: tagEditorSessionId === session.id }"
+                            title="Edit tags"
+                            @click.stop.prevent="
+                              tagEditorSessionId =
+                                tagEditorSessionId === session.id ? null : session.id
+                            "
+                          >
+                            <Icon icon="lucide:tag" :width="14" :height="14" />
+                          </button>
+                          <Dropdown
+                            class="session-export-dropdown"
+                            :auto-close="true"
+                            :popup-style="{ width: '160px', left: 'auto', right: 'anchor(right)' }"
+                            @select="
+                              (value: unknown) => handleExportSelect(value as string, session.id)
+                            "
+                          >
+                            <template #trigger>
+                              <button
+                                type="button"
+                                class="tree-action-button export"
+                                title="Export transcript"
+                                @click.stop.prevent
+                              >
+                                <Icon icon="lucide:download" :width="14" :height="14" />
+                              </button>
+                            </template>
+                            <DropdownItem value="markdown">
+                              <span class="menu-item-content">
+                                <Icon icon="lucide:file-down" :width="14" :height="14" />
+                                Export Markdown
+                              </span>
+                            </DropdownItem>
+                            <DropdownItem value="json">
+                              <span class="menu-item-content">
+                                <Icon icon="lucide:file-json" :width="14" :height="14" />
+                                Export JSON
+                              </span>
+                            </DropdownItem>
+                          </Dropdown>
+                          <button
+                            v-if="!session.archivedAt"
+                            type="button"
+                            class="tree-action-button session-del"
+                            :class="isShiftPressed ? 'danger' : 'archive'"
+                            :title="
+                              isShiftPressed
+                                ? 'Delete session permanently'
+                                : 'Archive session (with Shift key to delete permanently)'
+                            "
+                            @click.stop.prevent="handleSessionAction(session.id, close)"
+                          >
+                            <Icon
+                              :icon="isShiftPressed ? 'lucide:trash-2' : 'lucide:archive'"
+                              :width="16"
+                              :height="16"
+                            />
+                          </button>
+                        </div>
                       </DropdownItem>
+                      <div
+                        v-if="tagEditorSessionId === session.id"
+                        class="session-tag-editor"
+                        @click.stop
+                      >
+                        <SessionTagInput
+                          :tags="sessionTags[session.id] ?? []"
+                          :all-tags="allTags"
+                          @update:tags="(tags: string[]) => emit('update-tags', session.id, tags)"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -313,6 +389,7 @@ import { Icon } from '@iconify/vue';
 import Dropdown from './Dropdown.vue';
 import DropdownItem from './Dropdown/Item.vue';
 import DropdownSearch from './Dropdown/Search.vue';
+import SessionTagInput from './SessionTagInput.vue';
 
 declare const __GIT_REVISION__: string;
 const gitRevision = typeof __GIT_REVISION__ !== 'undefined' ? __GIT_REVISION__ : 'dev';
@@ -362,6 +439,9 @@ const props = defineProps<{
   activeDirectory: string;
   selectedSessionId: string;
   homePath?: string;
+  sessionTags: Record<string, string[]>;
+  sessionFavourites: Record<string, boolean>;
+  sessionSearchContents?: Record<string, string>;
 }>();
 
 const notifications = computed(() => props.notificationSessions ?? []);
@@ -384,16 +464,34 @@ const emit = defineEmits<{
   (event: 'open-settings'): void;
   (event: 'logout'): void;
   (event: 'dropdown-closed'): void;
+  (event: 'toggle-favourite', sessionId: string): void;
+  (event: 'update-tags', sessionId: string, tags: string[]): void;
+  (event: 'export-markdown', sessionId: string): void;
+  (event: 'export-json', sessionId: string): void;
 }>();
 
 const menuOpen = ref(false);
 const treeDropdownOpen = ref(false);
+const tagEditorSessionId = ref<string | null>(null);
+
+const allTags = computed(() => {
+  const set = new Set<string>();
+  for (const tags of Object.values(props.sessionTags ?? {})) {
+    for (const tag of tags) {
+      set.add(tag);
+    }
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+});
 
 watch(treeDropdownOpen, (open) => {
   if (open) {
     searchQuery.value = '';
   }
-  if (!open) emit('dropdown-closed');
+  if (!open) {
+    tagEditorSessionId.value = null;
+    emit('dropdown-closed');
+  }
 });
 
 function openSessionDropdown() {
@@ -458,8 +556,10 @@ const displayedTree = computed(() => {
         const sandboxes = worktree.sandboxes
           .map((sandbox) => {
             const sandboxMatches = matchesQuery(query, sandbox.directory, sandbox.branch);
-            const sessions = sandbox.sessions.filter(
-              (session) =>
+            const sessions = sandbox.sessions.filter((session) => {
+              const sessionTagsText = props.sessionTags?.[session.id]?.join(' ') ?? '';
+              const sessionContent = props.sessionSearchContents?.[session.id] ?? '';
+              return (
                 worktreeMatches ||
                 sandboxMatches ||
                 matchesQuery(
@@ -470,8 +570,11 @@ const displayedTree = computed(() => {
                   session.archivedAt ? 'archived' : undefined,
                   session.timeCreated ? formatSessionTime(session.timeCreated) : undefined,
                   session.timeUpdated ? formatSessionTime(session.timeUpdated) : undefined,
-                ),
-            );
+                  sessionTagsText,
+                  sessionContent,
+                )
+              );
+            });
             if (!worktreeMatches && !sandboxMatches && sessions.length === 0) return null;
             return {
               ...sandbox,
@@ -587,6 +690,11 @@ function onTreeSelect(payload: unknown) {
     directory: value.directory,
     sessionId: value.sessionId,
   });
+}
+
+function handleExportSelect(format: string, sessionId: string) {
+  if (format === 'markdown') emit('export-markdown', sessionId);
+  else if (format === 'json') emit('export-json', sessionId);
 }
 
 function handleCreateSessionIn(worktree: string, directory: string, close: () => void) {
@@ -1029,9 +1137,58 @@ function handleOpenDirectory(close: () => void) {
   padding: 2px 6px;
 }
 
+.session-tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex-basis: 100%;
+}
+
+.session-tag-chip {
+  font-size: 10px;
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.session-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.tree-action-button.favourite {
+  color: #64748b;
+}
+
+.tree-action-button.favourite.is-favourite {
+  color: #fbbf24;
+}
+
+.tree-action-button.tag-toggle {
+  color: #93c5fd;
+}
+
+.tree-action-button.tag-toggle.active {
+  background: #1d2a45;
+}
+
+.tree-action-button.export {
+  color: #cbd5e1;
+}
+
 .session-del {
   flex: 0 0 auto;
   margin-left: auto;
+}
+
+.session-tag-editor {
+  padding: 8px 8px 8px 40px;
+  background: rgba(15, 23, 42, 0.6);
+  border-top: 1px solid #334155;
 }
 
 .tree-footer {

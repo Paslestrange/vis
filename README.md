@@ -14,16 +14,22 @@ An alternative web UI for [OpenCode](https://github.com/sst/opencode), designed 
 
 ## How to Use
 
-### Cloud
+### Local
 
-**No installation required** — just open the hosted version in your browser:
+Serve the UI locally and then open `http://localhost:3000` in your browser.
 
-**<https://xenodrive.github.io/vis/>**
-
-All you need is a running OpenCode server with CORS enabled. Start it with:
+Start the UI server:
 
 ```bash
-opencode serve --cors https://xenodrive.github.io
+pnpm install
+pnpm build
+node server.js
+```
+
+Start the OpenCode API server:
+
+```bash
+opencode serve --cors http://localhost:3000
 ```
 
 Or add this to your `.config/opencode/opencode.json`:
@@ -32,7 +38,7 @@ Or add this to your `.config/opencode/opencode.json`:
 {
   "$schema": "https://opencode.ai/config.json",
   "server": {
-    "cors": ["https://xenodrive.github.io"]
+    "cors": ["http://localhost:3000"]
   }
 }
 ```
@@ -42,25 +48,6 @@ and then:
 ```bash
 opencode serve
 ```
-
-### Local
-
-The hosted version connects to your local OpenCode server, which some browsers may block due to security restrictions.
-If this happens, you can serve the UI locally instead:
-
-Start the UI server:
-
-```bash
-npx @xenodrive/vis
-```
-
-Start the OpenCode API server:
-
-```bash
-opencode serve
-```
-
-Then open `http://localhost:3000` in your browser.
 
 ---
 

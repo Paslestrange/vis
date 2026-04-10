@@ -42,3 +42,13 @@ export function formatElapsedTime(startMs?: number, endMs?: number): string {
   const rem = sec % 60;
   return rem > 0 ? `${min}m${rem}s` : `${min}m`;
 }
+
+export function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  try {
+    return String(error);
+  } catch {
+    return 'Unknown error';
+  }
+}

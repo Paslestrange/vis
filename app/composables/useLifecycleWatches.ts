@@ -90,6 +90,8 @@ export function useLifecycleWatches(options: {
   removePermissionEntry: (requestID: string) => void;
   upsertQuestionEntry: (request: any) => void;
   removeQuestionEntry: (requestID: string) => void;
+  upsertMcpPermissionEntry: (request: any) => void;
+  removeMcpPermissionEntry: (requestID: string) => void;
   applySessionStatusEvent: (sessionId: string, status: any) => void;
   shellManager: {
     handlePtyEvent: (event: any) => void;
@@ -170,6 +172,8 @@ export function useLifecycleWatches(options: {
     removePermissionEntry,
     upsertQuestionEntry,
     removeQuestionEntry,
+    upsertMcpPermissionEntry,
+    removeMcpPermissionEntry,
     applySessionStatusEvent,
     shellManager,
     treeNodes,
@@ -467,6 +471,40 @@ export function useLifecycleWatches(options: {
     globalEventUnsubscribers.push(
       ge.on('pty.deleted', ({ id }: any) => {
         shellManager.lingerAndRemoveShellWindow(id);
+      }),
+    );
+    globalEventUnsubscribers.push(
+      sessionScope.on('mcp.permission.request', (packet: any) => {
+        upsertMcpPermissionEntry(packet);
+      }),
+    );
+    globalEventUnsubscribers.push(
+      ge.on('mcp.tool.call', (packet: any) => {
+        if (suppressAutoWindows.value) return;
+        const sessionId = packet?.sessionID;
+        if (sessionId && !allowedSessionIds.value.has(sessionId)) return;
+        const callId = packet?.callID ?? `mcp:${packet?.server}:${packet?.tool}`;
+        fw.open(`mcp-tool:${callId}`, {
+          component: undefined,
+          props: undefined,
+          content: JSON.stringify(
+            {
+              server: packet?.server,
+              tool: packet?.tool,
+              arguments: packet?.arguments,
+            },
+            null,
+            2,
+          ),
+          lang: 'json',
+          title: `MCP: ${packet?.server} / ${packet?.tool}`,
+          color: '#2dd4bf',
+          status: 'running',
+          closable: true,
+          resizable: true,
+          scroll: 'manual',
+          expiry: Infinity,
+        });
       }),
     );
     globalEventUnsubscribers.push(

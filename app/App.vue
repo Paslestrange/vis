@@ -208,7 +208,7 @@
       </div>
     </div>
     <ProjectPicker :open="isProjectPickerOpen" :home-path="homePath" @close="isProjectPickerOpen = false" @select="handleProjectDirectorySelect" />
-    <SettingsModal :open="isSettingsOpen" :theme-mode="mode" @close="isSettingsOpen = false" @update:theme-mode="setMode" @open-analytics="isSettingsOpen = false; isAnalyticsOpen = true" />
+<SettingsModal :open="isSettingsOpen" :theme-mode="mode" @close="isSettingsOpen = false" @update:theme-mode="setMode" @open-analytics="isSettingsOpen = false; isAnalyticsOpen = true" @open-mcp="isMcpPanelOpen = true" />
     <ShortcutHelp :open="isShortcutHelpOpen" @close="isShortcutHelpOpen = false" />
     <CommandPalette
       :open="palette.isOpen.value"
@@ -224,6 +224,16 @@
       :project-id="selectedProjectId"
       :context-limit="analyticsContextLimit"
       @close="isAnalyticsOpen = false"
+    />
+    <McpServerPanel
+      :open="isMcpPanelOpen"
+      :servers="mcpServers.listServers()"
+      @close="isMcpPanelOpen = false"
+      @add="mcpServers.addServer"
+      @update="mcpServers.updateServer"
+      @remove="mcpServers.removeServer"
+      @connect="(name: string) => opencodeApi.connectMcpServer(name, activeDirectory.value || undefined)"
+      @disconnect="(name: string) => opencodeApi.disconnectMcpServer(name, activeDirectory.value || undefined)"
     />
     <ProjectSettingsDialog
       :open="!!editingProject"
@@ -253,16 +263,19 @@ import TopPanel from './components/TopPanel.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import CommandPalette from './components/CommandPalette.vue';
 import ShortcutHelp from './components/ShortcutHelp.vue';
+import McpServerPanel from './components/McpServerPanel.vue';
 import ProjectSettingsDialog from './components/ProjectSettingsDialog.vue';
 import { useAutoScroller, type ScrollMode } from './composables/useAutoScroller';
 import { useFileTree } from './composables/useFileTree';
 import { useFloatingWindows } from './composables/useFloatingWindows';
 import { usePermissions } from './composables/usePermissions';
+import { useMcpPermissions } from './composables/useMcpPermissions';
 import { useQuestions } from './composables/useQuestions';
 import { useTodos } from './composables/useTodos';
 import { useDeltaAccumulator } from './composables/useDeltaAccumulator';
 import { useGlobalEvents } from './composables/useGlobalEvents';
 import { useMessages } from './composables/useMessages';
+import { useMcpServers } from './composables/useMcpServers';
 import { useOpenCodeApi } from './composables/useOpenCodeApi';
 import { useReasoningWindows } from './composables/useReasoningWindows';
 import { useServerState } from './composables/useServerState';
@@ -454,6 +467,7 @@ watchEffect(() => {});
 
 const { upsertPermissionEntry, removePermissionEntry, prunePermissionEntries, fetchPendingPermissions } = usePermissions({ fw, allowedSessionIds, activeDirectory, ensureConnectionReady: () => true });
 const { upsertQuestionEntry, removeQuestionEntry, pruneQuestionEntries, fetchPendingQuestions } = useQuestions({ fw, allowedSessionIds, activeDirectory, ensureConnectionReady: () => true, getTextContent: (messageId: string) => msg.getTextContent(messageId) || '' });
+const { upsertMcpPermissionEntry, removeMcpPermissionEntry, pruneMcpPermissionEntries } = useMcpPermissions({ fw, allowedSessionIds, activeDirectory, ensureConnectionReady: () => true });
 
 const homePath = ref(''); const serverWorktreePath = ref(''); const shikiTheme = computed(() => (resolvedMode.value === 'light' ? 'github-light' : 'github-dark')); const sidePanelCollapsed = ref(false);
 const isShortcutHelpOpen = ref(false);
@@ -477,6 +491,9 @@ const notificationSessionOrder = ref<string[]>([]);
 const outputHandlers = useOutputHandlers({ shellManager, fw, toolWindowCanvasEl, inputEl, appEl, inputPanelRef, outputPanelRef, sidePanelCollapsed, sidePanelActiveTab, sidePanelWidth, shikiTheme, sendStatus: ref('Ready'), serverState, sessions, selectedSessionId, activeDirectory, projectDirectory, notificationSessionOrder, sessionParentById, allowedSessionIds, busyDescendantSessionIds, runDebugCommand, autoScroller: { enableFollow, resetFollow, pauseFollow: () => {}, resumeFollow, scrollToBottom: scrollOutputPanelToBottom }, notifyContentChange, ge, sessionScope, mainSessionScope, connectionState: ref('connecting'), uiInitState: ref('loading'), homePath });
 const { handleWindowResize, syncFloatingExtent, updateFloatingExtentObserver, runAppDebugCommand, handleOutputPanelMessageRendered, handleOutputPanelResumeFollow, handleOutputPanelContentResized, handleOutputPanelInitialRenderComplete, handleFloatingWindowClose, getBundledThemeNames, pickShikiTheme, normalizeDirectory, replaceHomePrefix, resolveWorktreeRelativePath, sessionLabel, getSelectedWorktreeDirectory, requireSelectedWorktree, ensureConnectionReady, readSidePanelCollapsed, persistSidePanelCollapsed, readSidePanelTab, persistSidePanelTab, toggleSidePanelCollapsed, setSidePanelTab, focusInput } = outputHandlers;
 sidePanelCollapsed.value = readSidePanelCollapsed(); sidePanelActiveTab.value = readSidePanelTab();
+
+const mcpServers = useMcpServers();
+const isMcpPanelOpen = ref(false);
 
 const projectNav = useProjectSessionNav({ serverState, openCodeApi, sessionSelection, homePath, sendStatus: ref('Ready'), ensureConnectionReady, fetchCommands, bootstrapReady, sessionsByProject, fw, ge, msg, reasoning, subagentWindows, shellManager, retryStatus: ref(null), todosBySessionId, todoLoadingBySessionId, todoErrorBySessionId, focusInput, fetchPendingPermissions, fetchPendingQuestions, allowedSessionIds, sessions, sessionParentById, sessionLabel, isBootstrapping: ref(false), uiInitState: ref('loading'), messageMeta, resetFollow, scrollOutputPanelToBottom, reloadTodosForAllowedSessions, sessionError: ref(''), notificationSessionOrder });
 const { editingProject, isProjectPickerOpen, isSettingsOpen, projectError, worktreeError, navigableTree, topPanelTreeData, currentProjectColor, currentProjectName, editingProjectMeta, notificationSessions, todoPanelSessions, createNewSession, createWorktreeFromWorktree, deleteWorktree, handleProjectDirectorySelect, handleNewSessionInSandbox, openProjectPicker, handleEditProject, handleSaveProject, bootstrapSelections, handleTopPanelSessionSelect, handleNotificationSessionSelect, reloadSelectedSessionState, validateSelectedSession, pickPreferredSessionId, sessionSortKey, readQuerySelection, replaceQuerySelection, createSessionInDirectory, initProjectNameFromPackageJson, resolveProjectIdForDirectory } = projectNav;
@@ -704,7 +721,7 @@ useLifecycleWatches({
   handleComposerDraftStorage, messageMetaHandleWindowAttentionChange: messageMeta.handleWindowAttentionChange, handleGlobalKeydown,
   bootstrapSelections, suppressAutoWindows, toolWindows, msg, reasoning, subagentWindows, retryStatus, todosBySessionId, todoErrorBySessionId,
   normalizeTodoItems, notificationSessionOrder, upsertPermissionEntry, removePermissionEntry, upsertQuestionEntry,
-  removeQuestionEntry, applySessionStatusEvent, treeNodes, expandedTreePathSet, selectedTreePath,
+  removeQuestionEntry, upsertMcpPermissionEntry, removeMcpPermissionEntry, applySessionStatusEvent, treeNodes, expandedTreePathSet, selectedTreePath,
 });
 </script>
 

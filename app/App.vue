@@ -194,7 +194,8 @@
       </div>
     </div>
     <ProjectPicker :open="isProjectPickerOpen" :home-path="homePath" @close="isProjectPickerOpen = false" @select="handleProjectDirectorySelect" />
-    <SettingsModal :open="isSettingsOpen" @close="isSettingsOpen = false" />
+    <SettingsModal :open="isSettingsOpen" :theme-mode="mode" @close="isSettingsOpen = false" @update:theme-mode="setMode" />
+    <ShortcutHelp :open="isShortcutHelpOpen" @close="isShortcutHelpOpen = false" />
     <CommandPalette
       :open="palette.isOpen.value"
       :query="palette.query.value"
@@ -230,6 +231,7 @@ import Welcome from './components/Welcome.vue';
 import TopPanel from './components/TopPanel.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import CommandPalette from './components/CommandPalette.vue';
+import ShortcutHelp from './components/ShortcutHelp.vue';
 import ProjectSettingsDialog from './components/ProjectSettingsDialog.vue';
 import { useAutoScroller, type ScrollMode } from './composables/useAutoScroller';
 import { useFileTree } from './composables/useFileTree';
@@ -270,10 +272,12 @@ import { useChatActions } from './composables/useChatActions';
 import { useOutputHandlers } from './composables/useOutputHandlers';
 import { useAppInit } from './composables/useAppInit';
 import { useSessionStatus } from './composables/useSessionStatus';
+import { useTheme } from './composables/useTheme';
 import { useLifecycleWatches } from './composables/useLifecycleWatches';
 
 const credentials = useCredentials();
 const { suppressAutoWindows } = useSettings();
+const { mode, resolvedMode, setMode } = useTheme();
 const FOLLOW_THRESHOLD_PX = 24;
 const REASONING_CLOSE_DELAY_MS = 3000;
 const SUBAGENT_CLOSE_DELAY_MS = 3000;
@@ -308,7 +312,7 @@ const { selectedProjectId, selectedSessionId, projectDirectory, activeDirectory,
 const mo = useModelOptions();
 const { providers, agents, commands, modelOptions, agentOptions, thinkingOptions, providersLoaded, providersLoading, providersFetchCount, agentsLoading, commandsLoading, selectedModel, selectedThinking, selectedMode, applyModelVariantSelection, applyAgentDefaults, resolveDefaultAgentModel, fetchProviders, fetchAgents, fetchCommands } = mo;
 
-const toolWindows = useToolWindows(fw, { activeDirectory, shikiTheme: ref('github-dark') });
+const toolWindows = useToolWindows(fw, { activeDirectory, shikiTheme: shikiTheme as any });
 const composerDrafts = useComposerDrafts();
 const appLayout = useAppLayout({ outputEl, inputEl, appBodyEl, sidePanelAreaEl, toolWindowCanvasEl, fw, shellManager: undefined as any });
 
@@ -351,11 +355,11 @@ const mainSessionScope = ge.mainSession(selectedSessionId);
 const msg = useMessages();
 msg.bindScope(mainSessionScope);
 
-const reasoning = useReasoningWindows({ selectedSessionId, fw, reasoningComponent: SubagentContent, theme: () => 'github-dark', reasoningCloseDelayMs: REASONING_CLOSE_DELAY_MS, resolveModelName: (providerID: string, modelID: string) => { const key = `${providerID}/${modelID}`; return modelOptions.value.find((m) => m.id === key)?.displayName; }, suppressAutoWindows });
+const reasoning = useReasoningWindows({ selectedSessionId, fw, reasoningComponent: SubagentContent, theme: () => shikiTheme.value, reasoningCloseDelayMs: REASONING_CLOSE_DELAY_MS, resolveModelName: (providerID: string, modelID: string) => { const key = `${providerID}/${modelID}`; return modelOptions.value.find((m) => m.id === key)?.displayName; }, suppressAutoWindows });
 const { updateReasoningExpiry } = reasoning;
 reasoning.bindScope(sessionScope);
 
-const subagentWindows = useSubagentWindows({ selectedSessionId, fw, subagentComponent: SubagentContent, theme: () => 'github-dark', closeDelayMs: SUBAGENT_CLOSE_DELAY_MS, resolveModelName: (providerID: string, modelID: string) => { const key = `${providerID}/${modelID}`; return modelOptions.value.find((m) => m.id === key)?.displayName; }, suppressAutoWindows });
+const subagentWindows = useSubagentWindows({ selectedSessionId, fw, subagentComponent: SubagentContent, theme: () => shikiTheme.value, closeDelayMs: SUBAGENT_CLOSE_DELAY_MS, resolveModelName: (providerID: string, modelID: string) => { const key = `${providerID}/${modelID}`; return modelOptions.value.find((m) => m.id === key)?.displayName; }, suppressAutoWindows });
 subagentWindows.bindScope(sessionScope);
 
 (messageMeta as any).msg = msg;
@@ -384,7 +388,8 @@ watchEffect(() => {});
 const { upsertPermissionEntry, removePermissionEntry, prunePermissionEntries, fetchPendingPermissions } = usePermissions({ fw, allowedSessionIds, activeDirectory, ensureConnectionReady: () => true });
 const { upsertQuestionEntry, removeQuestionEntry, pruneQuestionEntries, fetchPendingQuestions } = useQuestions({ fw, allowedSessionIds, activeDirectory, ensureConnectionReady: () => true, getTextContent: (messageId: string) => msg.getTextContent(messageId) || '' });
 
-const homePath = ref(''); const serverWorktreePath = ref(''); const shikiTheme = ref('github-dark'); const sidePanelCollapsed = ref(false);
+const homePath = ref(''); const serverWorktreePath = ref(''); const shikiTheme = computed(() => (resolvedMode.value === 'light' ? 'github-light' : 'github-dark')); const sidePanelCollapsed = ref(false);
+const isShortcutHelpOpen = ref(false);
 const sidePanelActiveTab = ref<'todo' | 'tree'>('tree');
 const { inputHeight, sidePanelWidth } = appLayout;
 
@@ -485,7 +490,13 @@ async function handlePaletteExecute(result: Parameters<typeof palette['flatResul
 const sessionStatus = useSessionStatus({ selectedSessionId, allowedSessionIds, updateReasoningExpiry });
 const { retryStatus, formatRetryTime, applySessionStatusEvent } = sessionStatus;
 
-const globalShortcuts = useGlobalShortcuts({ selectedProjectId, selectedSessionId, navigableTree, switchSessionSelection, createNewSession, openShell: (input: string) => shellManager.openShellFromInput(input), notificationSessions, handleNotificationSessionSelect, focusInput, abortSession, canAbort, sidePanelCollapsed, toggleSidePanelCollapsed, startInputResize: appLayout.startInputResize, startSidePanelResize: appLayout.startSidePanelResize, isSettingsOpen, isProjectPickerOpen, isCommandPaletteOpen: palette.isOpen, toggleCommandPalette: palette.toggle, topPanelRef });
+watch(resolvedMode, async (mode) => {
+  if (mode === 'light') {
+    await import('./App.vue.light.css');
+  }
+}, { immediate: true });
+
+const globalShortcuts = useGlobalShortcuts({ selectedProjectId, selectedSessionId, navigableTree, switchSessionSelection, createNewSession, openShell: (input: string) => shellManager.openShellFromInput(input), notificationSessions, handleNotificationSessionSelect, focusInput, abortSession, canAbort, sidePanelCollapsed, toggleSidePanelCollapsed, startInputResize: appLayout.startInputResize, startSidePanelResize: appLayout.startSidePanelResize, isSettingsOpen, isProjectPickerOpen, isShortcutHelpOpen, isCommandPaletteOpen: palette.isOpen, toggleCommandPalette: palette.toggle, topPanelRef });
 const { handleGlobalKeydown } = globalShortcuts;
 
 const appInit = useAppInit({ credentials, ge, bootstrapReady, selectedSessionId, activeDirectory, fetchProviders, fetchAgents, fetchCommands, fetchPendingPermissions, fetchPendingQuestions, bootstrapSelections, reloadSelectedSessionState, refreshGitStatus, shellManager, messageMeta, sendStatus: ref('Ready'), opencodeApi: opencodeApi as any, serverWorktreePath, homePath });

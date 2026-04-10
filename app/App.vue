@@ -51,6 +51,9 @@
             :tree-branch-entries="branchEntries"
             :tree-branch-list-loading="branchListLoading"
             :run-shell-command="shellManager.runTreeShellCommand"
+            :worktrees="worktrees"
+            :worktrees-loading="worktreesLoading"
+            :home-path="homePath"
             @toggle-collapse="toggleSidePanelCollapsed"
             @change-tab="setSidePanelTab"
             @toggle-dir="toggleTreeDirectory"
@@ -59,6 +62,10 @@
             @open-diff-all="(payload: { mode: 'staged' | 'changes' | 'all' }) => fileViewers.openAllGitDiff(payload.mode)"
             @open-file="fileViewers.openFileViewer"
             @reload="reloadTree().then(() => refreshGitStatus())"
+            @switch-worktree="handleSwitchWorktree"
+            @delete-worktree="deleteWorktree"
+            @create-worktree-from-branch="handleCreateWorktreeFromBranch"
+            @refresh-worktrees="refreshWorktrees"
           />
           <div v-if="!sidePanelCollapsed" class="side-resizer" @pointerdown="appLayout.startSidePanelResize"></div>
         </div>
@@ -246,6 +253,7 @@ import { StorageKeys, storageGet, storageRemove, storageSet } from './utils/stor
 import { toErrorMessage } from './utils/formatters';
 import { runDebugCommand } from './utils/debugCommands';
 import { useShellManager } from './composables/useShellManager';
+import { usePtyOneshot } from './composables/usePtyOneshot';
 import { useFileViewers } from './composables/useFileViewers';
 import { useToolWindows, decodeApiTextContent } from './composables/useToolWindows';
 import { useComposerDrafts } from './composables/useComposerDrafts';
@@ -261,6 +269,7 @@ import { useOutputHandlers } from './composables/useOutputHandlers';
 import { useAppInit } from './composables/useAppInit';
 import { useSessionStatus } from './composables/useSessionStatus';
 import { useLifecycleWatches } from './composables/useLifecycleWatches';
+import { useWorktrees } from './composables/useWorktrees';
 
 const credentials = useCredentials();
 const { suppressAutoWindows } = useSettings();
@@ -358,6 +367,9 @@ const fileViewers = useFileViewers(fw, { getDirectory: () => activeDirectory.val
 
 const { treeNodes, expandedTreePaths, expandedTreePathSet, selectedTreePath, treeLoading, treeError, gitStatus, gitStatusByPath, refreshGitStatus, reloadTree, toggleTreeDirectory, selectTreeFile, feed, branchEntries, branchListLoading, refreshBranchEntries } = useFileTree({ activeDirectory });
 
+const currentProject = computed(() => serverState.projects[selectedProjectId.value]);
+const { worktrees, loading: worktreesLoading, refreshWorktrees } = useWorktrees({ activeDirectory, currentProject, activeGitBranchInfo: computed(() => gitStatus.value?.branch ?? null) });
+
 const allowedSessionIds = computed(() => {
   const rootId = selectedSessionId.value; if (!rootId) return new Set<string>();
   const childrenByParent = new Map<string, string[]>();
@@ -375,7 +387,7 @@ const { upsertPermissionEntry, removePermissionEntry, prunePermissionEntries, fe
 const { upsertQuestionEntry, removeQuestionEntry, pruneQuestionEntries, fetchPendingQuestions } = useQuestions({ fw, allowedSessionIds, activeDirectory, ensureConnectionReady: () => true, getTextContent: (messageId: string) => msg.getTextContent(messageId) || '' });
 
 const homePath = ref(''); const serverWorktreePath = ref(''); const shikiTheme = ref('github-dark'); const sidePanelCollapsed = ref(false);
-const sidePanelActiveTab = ref<'todo' | 'tree'>('tree');
+const sidePanelActiveTab = ref<'todo' | 'tree' | 'worktrees'>('tree');
 const { inputHeight, sidePanelWidth } = appLayout;
 
 function toSessionInfo(directory: string, session: any): any {
@@ -420,6 +432,50 @@ const statusText = computed(() => { if (connectionState.value === 'reconnecting'
 const isStatusError = computed(() => Boolean(projectError.value || worktreeError.value || sessionError.value || retryStatus.value));
 const sessionRevert = computed(() => { const projectId = selectedProjectId.value.trim(); const sessionId = selectedSessionId.value.trim(); if (!projectId || !sessionId) return null; const all = sessionsByProject.value[projectId] ?? []; const session = all.find((s: any) => s.id === sessionId); return session?.revert ?? null; });
 const treeDirectoryName = computed(() => { const raw = activeDirectory.value.trim(); if (!raw) return ''; const trimmed = raw.replace(/\/+$/, ''); if (!trimmed) return '/'; const segments = trimmed.split('/').filter(Boolean); return segments.at(-1) ?? '/'; });
+
+function handleSwitchWorktree(directory: string) {
+  if (normalizeDirectory(activeDirectory.value) === normalizeDirectory(directory)) return;
+  const projectId = selectedProjectId.value.trim();
+  const project = serverState.projects[projectId];
+  if (!project) return;
+  const sandbox = project.sandboxes[directory];
+  if (!sandbox) return;
+  const candidates = sandbox.rootSessions
+    .map((id) => sandbox.sessions[id])
+    .filter((s): s is NonNullable<typeof s> => Boolean(s) && !s.timeArchived)
+    .sort((a, b) => (b.timeUpdated ?? b.timeCreated ?? 0) - (a.timeUpdated ?? a.timeCreated ?? 0));
+  if (candidates.length > 0) {
+    void switchSessionSelection(projectId, candidates[0].id);
+  } else {
+    void createSessionInDirectory(directory);
+  }
+}
+
+async function handleCreateWorktreeFromBranch(branch: string) {
+  if (!ensureConnectionReady('Creating worktree')) return;
+  const baseDirectory = projectDirectory.value;
+  if (!baseDirectory) return;
+  try {
+    await createWorktreeFromWorktree(baseDirectory);
+    const projectId = selectedProjectId.value.trim();
+    const project = serverState.projects[projectId];
+    if (!project) return;
+    const newSandbox = Object.values(project.sandboxes)
+      .filter((s) => !normalizeDirectory(s.directory).startsWith(normalizeDirectory(baseDirectory) + '/') && normalizeDirectory(s.directory) !== normalizeDirectory(baseDirectory))
+      .sort((a, b) => (b.rootSessions.length ? 1 : 0) - (a.rootSessions.length ? 1 : 0))[0];
+    if (newSandbox) {
+      const { runOneShotPtyCommand } = usePtyOneshot();
+      const script = [
+        `cd "${newSandbox.directory}"`,
+        `git checkout "${branch.replace(/"/g, '\\"')}"`,
+      ].join('\n');
+      await runOneShotPtyCommand('bash', ['--noprofile', '--norc', '-c', script]);
+      void refreshWorktrees();
+    }
+  } catch {
+    void 0;
+  }
+}
 
 async function handleEditMessage(payload: { sessionId: string; part: MessagePart }) {
   const directory = activeDirectory.value.trim(); if (payload.part.type !== 'text') return;

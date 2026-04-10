@@ -48,7 +48,7 @@ export type UseOutputHandlersOptions = {
   inputPanelRef: Ref<{ focus: () => void; reset: () => void } | null>;
   outputPanelRef: Ref<{ panelEl: HTMLDivElement | null } | null>;
   sidePanelCollapsed: Ref<boolean>;
-  sidePanelActiveTab: Ref<'todo' | 'tree'>;
+  sidePanelActiveTab: Ref<'todo' | 'tree' | 'worktrees'>;
   sidePanelWidth: Ref<number | null>;
   shikiTheme: Ref<string>;
   sendStatus: Ref<string>;
@@ -290,13 +290,20 @@ export function useOutputHandlers(options: UseOutputHandlersOptions) {
     storageSet(StorageKeys.state.sidePanelCollapsed, value ? '1' : '0');
   }
 
-  function readSidePanelTab(): 'todo' | 'tree' {
+  function readSidePanelTab(): 'todo' | 'tree' | 'worktrees' {
     const raw = storageGet(StorageKeys.state.sidePanelTab);
-    return raw === 'todo' ? 'todo' : 'tree';
+    if (raw === 'todo' || raw === 'worktrees') return raw;
+    return 'tree';
   }
 
-  function persistSidePanelTab(value: 'todo' | 'tree') {
+  function persistSidePanelTab(value: 'todo' | 'tree' | 'worktrees') {
     storageSet(StorageKeys.state.sidePanelTab, value);
+  }
+
+  function setSidePanelTab(value: 'todo' | 'tree' | 'worktrees') {
+    if (sidePanelActiveTab.value === value) return;
+    sidePanelActiveTab.value = value;
+    persistSidePanelTab(value);
   }
 
   function toggleSidePanelCollapsed() {
@@ -307,12 +314,6 @@ export function useOutputHandlers(options: UseOutputHandlersOptions) {
       syncFloatingExtent();
       shellManager.scheduleShellFitAll();
     });
-  }
-
-  function setSidePanelTab(value: 'todo' | 'tree') {
-    if (sidePanelActiveTab.value === value) return;
-    sidePanelActiveTab.value = value;
-    persistSidePanelTab(value);
   }
 
   function focusInput() {

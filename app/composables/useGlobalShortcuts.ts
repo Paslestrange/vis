@@ -24,6 +24,7 @@ export function useGlobalShortcuts(options: {
   startInputResize: (event: PointerEvent) => void;
   startSidePanelResize: (event: PointerEvent) => void;
   isSettingsOpen: Ref<boolean>;
+  isAnalyticsOpen?: Ref<boolean>;
   isProjectPickerOpen: Ref<boolean>;
   topPanelRef?: Ref<{
     closeSessionDropdown?: () => void;
@@ -48,6 +49,7 @@ export function useGlobalShortcuts(options: {
     startInputResize,
     startSidePanelResize,
     isSettingsOpen,
+    isAnalyticsOpen,
     isProjectPickerOpen,
     topPanelRef,
     bringFrontAll,
@@ -116,6 +118,14 @@ export function useGlobalShortcuts(options: {
     if (event.ctrlKey && !event.metaKey && !event.altKey && event.key === ';') {
       event.preventDefault();
       createNewSession();
+      return;
+    }
+
+    if (event.ctrlKey && !event.metaKey && !event.altKey && event.shiftKey && event.key.toLowerCase() === 'a') {
+      event.preventDefault();
+      if (isAnalyticsOpen) {
+        isAnalyticsOpen.value = true;
+      }
       return;
     }
 

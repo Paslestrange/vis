@@ -149,13 +149,38 @@
           <template #trigger><span /></template>
           <template #default>
             <div class="dropdown-list">
+              <template v-if="recentCommandMatches.length > 0 && slashQuery.trim() === ''">
+                <div class="command-section-label">Recently used</div>
+                <DropdownItem
+                  v-for="command in recentCommandMatches"
+                  :key="`recent-${command.name}`"
+                  :value="command.name"
+                >
+                  <div class="command-dropdown-item">
+                    <div class="command-row">
+                      <div class="command-name">/{{ command.name }}</div>
+                      <div v-if="command.hints && command.hints.length > 0" class="command-hint">
+                        {{ command.hints[0] }}
+                      </div>
+                    </div>
+                    <div v-if="command.description" class="command-desc">
+                      {{ command.description }}
+                    </div>
+                  </div>
+                </DropdownItem>
+              </template>
               <DropdownItem
                 v-for="command in commandMatches"
                 :key="command.name"
                 :value="command.name"
               >
                 <div class="command-dropdown-item">
-                  <div class="command-name">/{{ command.name }}</div>
+                  <div class="command-row">
+                    <div class="command-name">/{{ command.name }}</div>
+                    <div v-if="command.hints && command.hints.length > 0" class="command-hint">
+                      {{ command.hints[0] }}
+                    </div>
+                  </div>
                   <div v-if="command.description" class="command-desc">
                     {{ command.description }}
                   </div>
@@ -370,6 +395,7 @@ import DropdownSearch from './Dropdown/Search.vue';
 import { useMessages } from '../composables/useMessages';
 import { useFavoriteMessages } from '../composables/useFavoriteMessages';
 import { useSettings } from '../composables/useSettings';
+import { StorageKeys, storageGetJSON, storageSetJSON } from '../utils/storageKeys';
 type ModelOption = {
   id: string;
   modelID: string;
@@ -623,6 +649,22 @@ const slashQuery = computed(() => {
   return match?.[1] ?? '';
 });
 
+const RECENT_COMMANDS_LIMIT = 5;
+
+const recentCommandNames = ref<string[]>(
+  storageGetJSON<string[]>(StorageKeys.commands.recent) ?? [],
+);
+
+function recordCommandUsage(name: string) {
+  const normalized = name.toLowerCase();
+  const next = [normalized, ...recentCommandNames.value.filter((n) => n !== normalized)].slice(
+    0,
+    RECENT_COMMANDS_LIMIT,
+  );
+  recentCommandNames.value = next;
+  storageSetJSON(StorageKeys.commands.recent, next);
+}
+
 const commandMatches = computed(() => {
   if (!messageValue.value.startsWith('/')) return [];
   if (/\s/.test(messageValue.value.slice(1))) return [];
@@ -633,11 +675,20 @@ const commandMatches = computed(() => {
   return matches.slice(0, limit);
 });
 
+const recentCommandMatches = computed(() => {
+  const recent = recentCommandNames.value
+    .map((name) => (props.commands ?? []).find((c) => c.name.toLowerCase() === name))
+    .filter((c): c is CommandOption => Boolean(c));
+  return recent.slice(0, RECENT_COMMANDS_LIMIT);
+});
+
 const commandPopupDismissed = ref(false);
 
-const commandPopupOpen = computed(
-  () => !commandPopupDismissed.value && commandMatches.value.length > 0,
-);
+const commandPopupOpen = computed(() => {
+  const hasMatches = commandMatches.value.length > 0;
+  const hasRecent = recentCommandMatches.value.length > 0 && slashQuery.value.trim() === '';
+  return !commandPopupDismissed.value && (hasMatches || hasRecent);
+});
 watch(
   () => messageValue.value,
   () => {
@@ -650,6 +701,7 @@ function handleCommandSelect(name: unknown) {
 }
 
 function applyCommandSelection(name: string) {
+  recordCommandUsage(name);
   messageValue.value = `/${name} `;
   nextTick(() => textareaRef.value?.focus());
 }
@@ -839,6 +891,7 @@ function handleKeydown(event: KeyboardEvent) {
       const commandName = extractSlashCommand(messageValue.value);
       if (hasMatchingCommand(commandName)) {
         event.preventDefault();
+        recordCommandUsage(commandName);
         emit('send');
       }
     }
@@ -1389,6 +1442,14 @@ const inputMessageStyle = computed(() => {
   width: 100%;
   min-width: 0;
 }
+.command-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
 .command-name {
   font-size: 12px;
   color: #e2e8f0;
@@ -1398,6 +1459,23 @@ const inputMessageStyle = computed(() => {
   font-size: 10px;
   color: #94a3b8;
   line-height: 1.2;
+}
+.command-hint {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: #64748b;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid #334155;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.command-section-label {
+  padding: 4px 8px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
 }
 
 .history-dropdown-wrapper {

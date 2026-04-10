@@ -26,6 +26,9 @@ export function useGlobalShortcuts(options: {
   isSettingsOpen: Ref<boolean>;
   isAnalyticsOpen?: Ref<boolean>;
   isProjectPickerOpen: Ref<boolean>;
+  isCommandPaletteOpen: Ref<boolean>;
+  toggleCommandPalette: () => void;
+  isShortcutHelpOpen?: Ref<boolean>;
   topPanelRef?: Ref<{
     closeSessionDropdown?: () => void;
     toggleSessionDropdown?: () => void;
@@ -51,6 +54,9 @@ export function useGlobalShortcuts(options: {
     isSettingsOpen,
     isAnalyticsOpen,
     isProjectPickerOpen,
+    isCommandPaletteOpen,
+    toggleCommandPalette,
+    isShortcutHelpOpen,
     topPanelRef,
     bringFrontAll,
   } = options;
@@ -159,6 +165,29 @@ export function useGlobalShortcuts(options: {
     }
 
     if (
+      (event.ctrlKey || event.metaKey) &&
+      !event.altKey &&
+      !event.shiftKey &&
+      event.key.toLowerCase() === 'k'
+    ) {
+      event.preventDefault();
+      toggleCommandPalette();
+      return;
+    }
+
+    if (
+      event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      event.shiftKey &&
+      event.key.toLowerCase() === 'p'
+    ) {
+      event.preventDefault();
+      toggleCommandPalette();
+      return;
+    }
+
+    if (
       event.altKey &&
       !event.ctrlKey &&
       !event.metaKey &&
@@ -180,8 +209,41 @@ export function useGlobalShortcuts(options: {
       return;
     }
 
+    if (event.key === '?' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const active = document.activeElement;
+      const isTyping =
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        active?.getAttribute('contenteditable') === 'true';
+      if (!isTyping) {
+        event.preventDefault();
+        if (isShortcutHelpOpen) {
+          isShortcutHelpOpen.value = true;
+        }
+        return;
+      }
+    }
+
+    if (event.ctrlKey && !event.metaKey && !event.altKey && event.key === '/') {
+      event.preventDefault();
+      if (isShortcutHelpOpen) {
+        isShortcutHelpOpen.value = true;
+      }
+      return;
+    }
+
     if (event.key !== 'Escape') return;
 
+    if (isCommandPaletteOpen.value) {
+      toggleCommandPalette();
+      lastEscTime = 0;
+      return;
+    }
+    if (isShortcutHelpOpen?.value) {
+      isShortcutHelpOpen.value = false;
+      lastEscTime = 0;
+      return;
+    }
     if (isSettingsOpen.value) {
       isSettingsOpen.value = false;
       lastEscTime = 0;

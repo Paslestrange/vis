@@ -26,6 +26,35 @@
             <span class="toggle-track" />
           </label>
         </div>
+        <div class="setting-group">
+          <div class="setting-label">Theme</div>
+          <div class="radio-row">
+            <label class="radio-option">
+              <input
+                type="radio"
+                :checked="props.themeMode === 'light'"
+                @change="$emit('update:themeMode', 'light')"
+              />
+              <span>Light</span>
+            </label>
+            <label class="radio-option">
+              <input
+                type="radio"
+                :checked="props.themeMode === 'dark'"
+                @change="$emit('update:themeMode', 'dark')"
+              />
+              <span>Dark</span>
+            </label>
+            <label class="radio-option">
+              <input
+                type="radio"
+                :checked="props.themeMode === 'system'"
+                @change="$emit('update:themeMode', 'system')"
+              />
+              <span>System</span>
+            </label>
+          </div>
+        </div>
       </div>
     </div>
   </dialog>
@@ -36,12 +65,16 @@ import { ref, watch } from 'vue';
 import { Icon } from '@iconify/vue';
 import { useSettings } from '../composables/useSettings';
 
+import type { ThemeMode } from '../composables/useTheme';
+
 const props = defineProps<{
   open: boolean;
+  themeMode: ThemeMode;
 }>();
 
 defineEmits<{
   (event: 'close'): void;
+  (event: 'update:themeMode', mode: ThemeMode): void;
 }>();
 
 const dialogRef = ref<HTMLDialogElement | null>(null);
@@ -211,5 +244,36 @@ watch(
 .toggle-input:checked + .toggle-track::after {
   transform: translateX(16px);
   background: #fff;
+}
+
+.setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.45);
+}
+
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.radio-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #e2e8f0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.radio-option input[type='radio'] {
+  accent-color: #3b82f6;
 }
 </style>

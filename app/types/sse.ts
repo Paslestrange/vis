@@ -482,6 +482,22 @@ export type CommandExecutedPacket = {
 export type InstallationUpdatedPacket = { version: string };
 export type InstallationUpdateAvailablePacket = { version: string };
 export type McpToolsChangedPacket = { server: string };
+export type McpToolCallPacket = {
+  server: string;
+  tool: string;
+  arguments: Record<string, unknown>;
+  sessionID: string;
+  messageID: string;
+  callID: string;
+};
+export type McpPermissionRequestPacket = {
+  id: string;
+  sessionID: string;
+  server: string;
+  tool: string;
+  arguments: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+};
 
 // connection lifecycle (client-side only)
 export type ConnectionOpenPacket = Record<string, never>;
@@ -526,6 +542,8 @@ export type GlobalEventMap = {
   'installation.updated': InstallationUpdatedPacket;
   'installation.update-available': InstallationUpdateAvailablePacket;
   'mcp.tools.changed': McpToolsChangedPacket;
+  'mcp.tool.call': McpToolCallPacket;
+  'mcp.permission.request': McpPermissionRequestPacket;
   // connection lifecycle
   'connection.open': ConnectionOpenPacket;
   'connection.error': ConnectionErrorPacket;

@@ -26,31 +26,19 @@
             <span class="toggle-track" />
           </label>
         </div>
-        <div class="setting-group">
+<div class="setting-group">
           <div class="setting-label">Theme</div>
           <div class="radio-row">
             <label class="radio-option">
-              <input
-                type="radio"
-                :checked="props.themeMode === 'light'"
-                @change="$emit('update:themeMode', 'light')"
-              />
+              <input type="radio" :checked="props.themeMode === 'light'" @change="$emit('update:themeMode', 'light')" />
               <span>Light</span>
             </label>
             <label class="radio-option">
-              <input
-                type="radio"
-                :checked="props.themeMode === 'dark'"
-                @change="$emit('update:themeMode', 'dark')"
-              />
+              <input type="radio" :checked="props.themeMode === 'dark'" @change="$emit('update:themeMode', 'dark')" />
               <span>Dark</span>
             </label>
             <label class="radio-option">
-              <input
-                type="radio"
-                :checked="props.themeMode === 'system'"
-                @change="$emit('update:themeMode', 'system')"
-              />
+              <input type="radio" :checked="props.themeMode === 'system'" @change="$emit('update:themeMode', 'system')" />
               <span>System</span>
             </label>
           </div>
@@ -63,6 +51,17 @@
             </div>
           </div>
           <button type="button" class="action-button" @click="$emit('open-analytics')">
+            Open
+          </button>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">MCP Servers</div>
+            <div class="setting-description">
+              Manage configured Model Context Protocol servers.
+            </div>
+          </div>
+          <button type="button" class="settings-action-button" @click="$emit('openMcp')">
             Open
           </button>
         </div>
@@ -87,6 +86,7 @@ defineEmits<{
   (event: 'close'): void;
   (event: 'open-analytics'): void;
   (event: 'update:themeMode', mode: ThemeMode): void;
+  (event: 'openMcp'): void;
 }>();
 
 const dialogRef = ref<HTMLDialogElement | null>(null);
@@ -273,6 +273,21 @@ watch(
 
 .action-button:hover {
   background: #1d2a45;
+}
+
+.settings-action-button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.settings-action-button:hover {
+  background: #1e293b;
 }
 
 .setting-group {

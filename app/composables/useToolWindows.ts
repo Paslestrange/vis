@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import ContentViewer from '../components/viewers/ContentViewer.vue';
 import GlobContent from '../components/ToolWindow/Glob.vue';
 import GrepContent from '../components/ToolWindow/Grep.vue';
+import McpContent from '../components/ToolWindow/Mcp.vue';
 import ReasoningContent from '../components/ToolWindow/Reasoning.vue';
 import ThreadHistoryContent from '../components/ThreadHistoryContent.vue';
 import WebContent from '../components/ToolWindow/Web.vue';
@@ -79,6 +80,7 @@ const TOOL_WINDOW_SUPPORTED = new Set([
   'glob',
   'grep',
   'list',
+  'mcp',
   'multiedit',
   'read',
   'task',
@@ -358,6 +360,7 @@ export function useToolWindows(
     GrepContent,
     GlobContent,
     WebContent,
+    McpContent,
   };
 
   function openToolPartAsWindow(

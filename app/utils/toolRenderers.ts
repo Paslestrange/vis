@@ -39,6 +39,7 @@ export type ToolRenderersHelpers = {
   GrepContent: unknown;
   GlobContent: unknown;
   WebContent: unknown;
+  McpContent: unknown;
 };
 
 function toolEmoji(tool: string): string {
@@ -643,6 +644,46 @@ export function extractFileRead(
           };
         }
         return null;
+      }
+      case 'mcp': {
+        const mcpServer = typeof input?.server === 'string' ? input.server : undefined;
+        const mcpTool = typeof input?.tool === 'string' ? input.tool : undefined;
+        const mcpArgs = input?.arguments && typeof input.arguments === 'object'
+          ? (input.arguments as Record<string, unknown>)
+          : undefined;
+        const mcpResult = output !== undefined ? output : undefined;
+        if (status === 'running') {
+          return {
+            component: helpers.McpContent,
+            props: {
+              html: '',
+              status,
+              server: mcpServer,
+              tool: mcpTool,
+              arguments: mcpArgs,
+            },
+            callId,
+            toolName: tool,
+            toolStatus: status,
+            title: toolPrefix(tool, 'MCP', mcpServer ? `${mcpServer} / ${mcpTool}` : mcpTool),
+          };
+        }
+        const mcpOutputText = outputText ?? errorText ?? '';
+        return {
+          component: helpers.McpContent,
+          props: {
+            html: '',
+            status,
+            server: mcpServer,
+            tool: mcpTool,
+            arguments: mcpArgs,
+            result: mcpResult ?? mcpOutputText,
+          },
+          callId,
+          toolName: tool,
+          toolStatus: status,
+          title: toolPrefix(tool, 'MCP', mcpServer ? `${mcpServer} / ${mcpTool}` : mcpTool),
+        };
       }
       case 'plan_enter':
       case 'plan_exit': {

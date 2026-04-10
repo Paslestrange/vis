@@ -74,6 +74,8 @@ const KNOWN_EVENT_TYPES = new Set<EventKey>([
   'installation.updated',
   'installation.update-available',
   'mcp.tools.changed',
+  'mcp.tool.call',
+  'mcp.permission.request',
   'connection.open',
   'connection.error',
   'connection.reconnected',

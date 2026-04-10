@@ -431,6 +431,37 @@ export async function rejectQuestion(requestId: string, directory?: string) {
   });
 }
 
+export function listMcpServers(directory?: string) {
+  return getJson('/mcp', { directory }) as Promise<Record<string, { status: string; error?: string; tools?: unknown[] }>>;
+}
+
+export function addMcpServer(payload: { name: string; config: { command: string; args?: string[]; env?: Record<string, string> } }, directory?: string) {
+  return sendJson('/mcp', 'POST', {
+    params: { directory },
+    body: { name: payload.name, config: payload.config },
+  }) as Promise<unknown>;
+}
+
+export function removeMcpServer(name: string, directory?: string) {
+  return sendJson(`/mcp/${encodeURIComponent(name)}`, 'DELETE', {
+    params: { directory },
+  }) as Promise<unknown>;
+}
+
+export function connectMcpServer(name: string, directory?: string) {
+  return sendJson(`/mcp/${encodeURIComponent(name)}/connect`, 'POST', {
+    params: { directory },
+    body: {},
+  }) as Promise<boolean>;
+}
+
+export function disconnectMcpServer(name: string, directory?: string) {
+  return sendJson(`/mcp/${encodeURIComponent(name)}/disconnect`, 'POST', {
+    params: { directory },
+    body: {},
+  }) as Promise<boolean>;
+}
+
 export function updateProject(
   projectId: string,
   payload: {

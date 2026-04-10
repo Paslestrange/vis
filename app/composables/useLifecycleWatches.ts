@@ -45,8 +45,8 @@ export function useLifecycleWatches(options: {
   reloadTodosForAllowedSessions: () => Promise<void> | void;
   sidePanelCollapsed: Ref<boolean>;
   persistSidePanelCollapsed: (value: boolean) => void;
-  sidePanelActiveTab: Ref<'todo' | 'tree'>;
-  persistSidePanelTab: (value: 'todo' | 'tree') => void;
+  sidePanelActiveTab: Ref<'todo' | 'tree' | 'worktrees'>;
+  persistSidePanelTab: (value: 'todo' | 'tree' | 'worktrees') => void;
   allowedSessionIds: ComputedRef<Set<string>>;
   fetchProviders: (force?: boolean) => Promise<void>;
   ge: {

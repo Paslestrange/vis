@@ -33,6 +33,18 @@
         </button>
       </div>
       <TodoList v-if="activeTab === 'todo'" :sessions="todoSessions" />
+      <WorktreeMap
+        v-else-if="activeTab === 'worktrees'"
+        :worktrees="worktrees"
+        :loading="worktreesLoading"
+        :branch-entries="treeBranchEntries"
+        :branch-list-loading="treeBranchListLoading"
+        :home-path="homePath"
+        @switch-worktree="(dir) => emit('switch-worktree', dir)"
+        @delete-worktree="(dir) => emit('delete-worktree', dir)"
+        @create-worktree-from-branch="(branch) => emit('create-worktree-from-branch', branch)"
+        @refresh="emit('refresh-worktrees')"
+      />
       <TreeView
         v-else
         :root-nodes="treeNodes"
@@ -62,7 +74,9 @@
 import { toRefs } from 'vue';
 import { Icon } from '@iconify/vue';
 import TodoList from './TodoList.vue';
+import WorktreeMap from './WorktreeMap.vue';
 import type { BranchEntry } from '../composables/useFileTree';
+import type { WorktreeItem } from '../composables/useWorktrees';
 import TreeView, {
   type GitBranchInfo,
   type GitDiffStats,
@@ -87,7 +101,7 @@ type TodoPanelSession = {
 
 const props = defineProps<{
   collapsed: boolean;
-  activeTab: 'todo' | 'tree';
+  activeTab: 'todo' | 'tree' | 'worktrees';
   todoSessions: TodoPanelSession[];
   treeNodes: TreeNode[];
   expandedTreePaths: string[];
@@ -101,22 +115,30 @@ const props = defineProps<{
   treeBranchEntries?: BranchEntry[];
   treeBranchListLoading?: boolean;
   runShellCommand?: (command: string) => Promise<void>;
+  worktrees: WorktreeItem[];
+  worktreesLoading?: boolean;
+  homePath?: string;
 }>();
 
 const emit = defineEmits<{
   (event: 'toggle-collapse'): void;
-  (event: 'change-tab', value: 'todo' | 'tree'): void;
+  (event: 'change-tab', value: 'todo' | 'tree' | 'worktrees'): void;
   (event: 'toggle-dir', path: string): void;
   (event: 'select-file', path: string): void;
   (event: 'open-diff', payload: { path: string; staged: boolean }): void;
   (event: 'open-diff-all', payload: { mode: 'staged' | 'changes' | 'all' }): void;
   (event: 'open-file', path: string): void;
   (event: 'reload'): void;
+  (event: 'switch-worktree', directory: string): void;
+  (event: 'delete-worktree', directory: string): void;
+  (event: 'create-worktree-from-branch', branch: string): void;
+  (event: 'refresh-worktrees'): void;
 }>();
 
 const tabs = [
   { id: 'todo' as const, label: 'TODO' },
   { id: 'tree' as const, label: 'TREE' },
+  { id: 'worktrees' as const, label: 'WTS' },
 ];
 
 const {
@@ -135,6 +157,9 @@ const {
   treeBranchEntries,
   treeBranchListLoading,
   runShellCommand,
+  worktrees,
+  worktreesLoading,
+  homePath,
 } = toRefs(props);
 </script>
 

@@ -271,4 +271,75 @@ function emitReply(reply: 'once' | 'always' | 'reject') {
   background: rgba(239, 68, 68, 0.18);
   border-color: rgba(239, 68, 68, 0.6);
 }
+
+html.theme-light .permission-window {
+  color: #0f172a;
+}
+
+html.theme-light .permission-type {
+  color: #64748b;
+}
+
+html.theme-light .permission-summary {
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(241, 245, 249, 0.7);
+}
+
+html.theme-light .permission-label {
+  color: #64748b;
+}
+
+html.theme-light .permission-value {
+  color: #0f172a;
+}
+
+html.theme-light .permission-section {
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(248, 250, 252, 0.85);
+}
+
+html.theme-light .section-title {
+  color: #475569;
+}
+
+html.theme-light .metadata-key {
+  color: #64748b;
+}
+
+html.theme-light .metadata-value {
+  color: #0f172a;
+}
+
+html.theme-light .empty {
+  color: #94a3b8;
+}
+
+html.theme-light .permission-error {
+  color: #ef4444;
+}
+
+html.theme-light .permission-actions {
+  border-top-color: rgba(148, 163, 184, 0.25);
+}
+
+html.theme-light .permission-button {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+html.theme-light .permission-button.is-once {
+  background: rgba(14, 165, 233, 0.12);
+  border-color: rgba(14, 165, 233, 0.5);
+}
+
+html.theme-light .permission-button.is-always {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.45);
+}
+
+html.theme-light .permission-button.is-reject {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.45);
+}
 </style>

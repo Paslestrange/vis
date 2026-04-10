@@ -320,4 +320,75 @@ watch(
 .radio-option input[type='radio'] {
   accent-color: #3b82f6;
 }
+
+html.theme-light .modal {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: #cbd5e1;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+}
+
+html.theme-light .modal-backdrop::backdrop {
+  background: rgba(15, 23, 42, 0.25);
+}
+
+html.theme-light .modal-close-button {
+  border-color: #cbd5e1;
+  color: #64748b;
+}
+
+html.theme-light .modal-close-button:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+html.theme-light .setting-row {
+  border-color: #e2e8f0;
+  background: rgba(248, 250, 252, 0.85);
+}
+
+html.theme-light .setting-label {
+  color: #0f172a;
+}
+
+html.theme-light .setting-description {
+  color: #94a3b8;
+}
+
+html.theme-light .action-button {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+html.theme-light .action-button:hover {
+  background: #e2e8f0;
+}
+
+html.theme-light .settings-action-button {
+  border-color: #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+html.theme-light .settings-action-button:hover {
+  background: #e2e8f0;
+}
+
+html.theme-light .setting-group {
+  border-color: #e2e8f0;
+  background: rgba(248, 250, 252, 0.85);
+}
+
+html.theme-light .radio-option {
+  color: #0f172a;
+}
+
+html.theme-light .toggle-track {
+  background: #cbd5e1;
+}
+
+html.theme-light .toggle-track::after {
+  background: #64748b;
+}
 </style>

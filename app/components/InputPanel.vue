@@ -1740,4 +1740,135 @@ const inputMessageStyle = computed(() => {
   opacity: 0;
   transform: translateX(-50%) translateY(-4px);
 }
+
+html.theme-light :deep(.command-popup) .ui-dropdown-item[aria-selected='true'] {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+html.theme-light .command-name {
+  color: #0f172a;
+}
+
+html.theme-light .command-desc {
+  color: #64748b;
+}
+
+html.theme-light .command-hint {
+  color: #94a3b8;
+  background: rgba(226, 232, 240, 0.8);
+  border-color: #cbd5e1;
+}
+
+html.theme-light .command-section-label {
+  color: #94a3b8;
+}
+
+html.theme-light :deep(.history-popup) {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: #cbd5e1;
+  box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.12);
+}
+
+html.theme-light :deep(.history-popup) .ui-dropdown-item {
+  background: rgba(248, 250, 252, 0.9);
+  border-color: #e2e8f0;
+}
+
+html.theme-light :deep(.history-popup) .ui-dropdown-item[aria-selected='true'],
+html.theme-light :deep(.history-popup) .ui-dropdown-item:hover {
+  background: rgba(226, 232, 240, 0.85);
+  border-color: #cbd5e1;
+}
+
+html.theme-light .history-item {
+  border-left-color: #cbd5e1;
+}
+
+html.theme-light .history-item-text {
+  color: #0f172a;
+}
+
+html.theme-light .history-target-model {
+  color: #0f172a;
+}
+
+html.theme-light .history-target-provider {
+  color: #64748b;
+}
+
+html.theme-light .history-target-separator {
+  color: #94a3b8;
+}
+
+html.theme-light .history-action-button {
+  color: #94a3b8;
+}
+
+html.theme-light .history-action-button:hover {
+  color: #16a34a;
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.25);
+}
+
+html.theme-light .history-action-button.is-favorited {
+  color: #16a34a;
+}
+
+html.theme-light .history-action-button.remove:hover {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+html.theme-light .input-button {
+  color: #64748b;
+}
+
+html.theme-light .input-button:hover:not(:disabled) {
+  background: rgba(203, 213, 225, 0.5);
+  color: #0f172a;
+}
+
+html.theme-light .input-button.primary {
+  background: rgba(59, 130, 246, 0.15);
+  color: #2563eb;
+}
+
+html.theme-light .input-button.primary:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.28);
+  color: #1d4ed8;
+}
+
+html.theme-light .input-button.stop {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+}
+
+html.theme-light .input-button.stop:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.28);
+  color: #b91c1c;
+}
+
+html.theme-light .suppress-button.active {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+}
+
+html.theme-light .suppress-button.active:hover {
+  background: rgba(239, 68, 68, 0.28);
+  color: #b91c1c;
+}
+
+html.theme-light .bookmark-button:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+}
+
+html.theme-light .bookmark-toast {
+  background: rgba(255, 255, 255, 0.98);
+  color: #16a34a;
+  border-color: rgba(34, 197, 94, 0.3);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+}
 </style>

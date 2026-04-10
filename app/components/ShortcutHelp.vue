@@ -226,4 +226,40 @@ watch(
   color: #94a3b8;
   margin-left: 8px;
 }
+
+html.theme-light .modal {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: #cbd5e1;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+}
+
+html.theme-light .modal-backdrop::backdrop {
+  background: rgba(15, 23, 42, 0.25);
+}
+
+html.theme-light .modal-close-button {
+  border-color: #cbd5e1;
+  color: #64748b;
+}
+
+html.theme-light .modal-close-button:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+html.theme-light .shortcut-key {
+  border-color: #cbd5e1;
+  border-bottom-color: #e2e8f0;
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+html.theme-light .shortcut-plus {
+  color: #94a3b8;
+}
+
+html.theme-light .shortcut-desc {
+  color: #64748b;
+}
 </style>

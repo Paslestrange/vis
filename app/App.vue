@@ -195,6 +195,14 @@
     </div>
     <ProjectPicker :open="isProjectPickerOpen" :home-path="homePath" @close="isProjectPickerOpen = false" @select="handleProjectDirectorySelect" />
     <SettingsModal :open="isSettingsOpen" @close="isSettingsOpen = false" />
+    <CommandPalette
+      :open="palette.isOpen.value"
+      :query="palette.query.value"
+      :groups="palette.filteredResults.value"
+      @update:query="(v) => (palette.query.value = v)"
+      @execute="handlePaletteExecute"
+      @close="palette.close()"
+    />
     <ProjectSettingsDialog
       :open="!!editingProject"
       :project-id="editingProject?.projectId ?? ''"
@@ -221,6 +229,7 @@ import SidePanel from './components/SidePanel.vue';
 import Welcome from './components/Welcome.vue';
 import TopPanel from './components/TopPanel.vue';
 import SettingsModal from './components/SettingsModal.vue';
+import CommandPalette from './components/CommandPalette.vue';
 import ProjectSettingsDialog from './components/ProjectSettingsDialog.vue';
 import { useAutoScroller, type ScrollMode } from './composables/useAutoScroller';
 import { useFileTree } from './composables/useFileTree';
@@ -254,6 +263,7 @@ import { useSessionMutations } from './composables/useSessionMutations';
 import { useMessageMeta } from './composables/useMessageMeta';
 import { useModelOptions, buildThinkingOptions, buildProviderModelKey, parseProviderModelKey } from './composables/useModelOptions';
 import { useGlobalShortcuts } from './composables/useGlobalShortcuts';
+import { useCommandPalette } from './composables/useCommandPalette';
 import { useProjectSessionNav } from './composables/useProjectSessionNav';
 import { useComposerState } from './composables/useComposerState';
 import { useChatActions } from './composables/useChatActions';
@@ -407,10 +417,75 @@ const sessionMutations = useSessionMutations({ selectedProjectId, selectedSessio
 const chatActions = useChatActions({ ensureConnectionReady, activeDirectory, selectedSessionId, filteredSessions, messageInput, attachments, selectedMode, selectedModel, selectedThinking, modelOptions, parseProviderModelKey, opencodeApi: openCodeApi as any, shellManager: { openShellFromInput: (input: string) => shellManager.openShellFromInput(input) }, runAppDebugCommand, commands, requireSelectedWorktree, enableFollow, clearComposerDraftForCurrentContext, busyDescendantSessionIds, isThinking, uiInitState: ref('loading'), connectionState: ref('connecting'), sendStatus: ref('Ready'), pickPreferredSessionId });
 const { sendMessage, sendCommand, abortSession, parseSlashCommand, findCommandByName, isSending, isAborting, commandOptions, canSend, canAbort } = chatActions;
 
+const paletteSessions = computed(() => {
+  const list: Array<{ id: string; projectId: string; title?: string; slug?: string; directory?: string }> = [];
+  for (const [projectId, projectSessions] of Object.entries(sessionsByProject.value)) {
+    for (const session of projectSessions) {
+      list.push({
+        id: session.id,
+        projectId,
+        title: session.title,
+        slug: session.slug,
+        directory: session.directory,
+      });
+    }
+  }
+  return list;
+});
+
+const paletteProjects = computed(() => {
+  return Object.values(serverState.projects).map((project) => ({
+    id: project.id,
+    name: project.name?.trim() || project.worktree.replace(/\/+$/, '').split('/').pop() || project.id,
+    worktree: project.worktree,
+  }));
+});
+
+const paletteCommands = computed(() =>
+  commandOptions.value.map((command) => ({
+    name: command.name,
+    description: command.description,
+    hints: command.hints,
+  })),
+);
+
+const palette = useCommandPalette({
+  sessions: paletteSessions,
+  projects: paletteProjects,
+  commands: paletteCommands,
+});
+
+async function handlePaletteExecute(result: Parameters<typeof palette['flatResults']['value'][number]>[0] extends { type: infer T } ? { type: T; item?: unknown } : never) {
+  palette.close();
+  if (result.type === 'session') {
+    const item = (result as { type: 'session'; item: { id: string; projectId: string } }).item;
+    await switchSessionSelection(item.projectId, item.id);
+    return;
+  }
+  if (result.type === 'project') {
+    const item = (result as { type: 'project'; item: { id: string } }).item;
+    const projectSessions = sessionsByProject.value[item.id] ?? [];
+    const targetId = pickPreferredSessionId(projectSessions);
+    if (targetId) {
+      await switchSessionSelection(item.id, targetId);
+    }
+    return;
+  }
+  if (result.type === 'command') {
+    const item = (result as { type: 'command'; item: { name: string } }).item;
+    messageInput.value = `/${item.name} `;
+    nextTick(() => focusInput());
+    return;
+  }
+  if (result.type === 'settings') {
+    isSettingsOpen.value = true;
+  }
+}
+
 const sessionStatus = useSessionStatus({ selectedSessionId, allowedSessionIds, updateReasoningExpiry });
 const { retryStatus, formatRetryTime, applySessionStatusEvent } = sessionStatus;
 
-const globalShortcuts = useGlobalShortcuts({ selectedProjectId, selectedSessionId, navigableTree, switchSessionSelection, createNewSession, openShell: (input: string) => shellManager.openShellFromInput(input), notificationSessions, handleNotificationSessionSelect, focusInput, abortSession, canAbort, sidePanelCollapsed, toggleSidePanelCollapsed, startInputResize: appLayout.startInputResize, startSidePanelResize: appLayout.startSidePanelResize, isSettingsOpen, isProjectPickerOpen, topPanelRef });
+const globalShortcuts = useGlobalShortcuts({ selectedProjectId, selectedSessionId, navigableTree, switchSessionSelection, createNewSession, openShell: (input: string) => shellManager.openShellFromInput(input), notificationSessions, handleNotificationSessionSelect, focusInput, abortSession, canAbort, sidePanelCollapsed, toggleSidePanelCollapsed, startInputResize: appLayout.startInputResize, startSidePanelResize: appLayout.startSidePanelResize, isSettingsOpen, isProjectPickerOpen, isCommandPaletteOpen: palette.isOpen, toggleCommandPalette: palette.toggle, topPanelRef });
 const { handleGlobalKeydown } = globalShortcuts;
 
 const appInit = useAppInit({ credentials, ge, bootstrapReady, selectedSessionId, activeDirectory, fetchProviders, fetchAgents, fetchCommands, fetchPendingPermissions, fetchPendingQuestions, bootstrapSelections, reloadSelectedSessionState, refreshGitStatus, shellManager, messageMeta, sendStatus: ref('Ready'), opencodeApi: opencodeApi as any, serverWorktreePath, homePath });

@@ -17,6 +17,9 @@ export const StorageKeys = {
   favorites: {
     messages: 'favorites.messages.v1',
   },
+  commands: {
+    recent: 'commands.recent.v1',
+  },
   auth: {
     credentials: 'auth.credentials.v1',
   },

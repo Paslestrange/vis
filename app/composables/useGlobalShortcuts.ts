@@ -25,6 +25,8 @@ export function useGlobalShortcuts(options: {
   startSidePanelResize: (event: PointerEvent) => void;
   isSettingsOpen: Ref<boolean>;
   isProjectPickerOpen: Ref<boolean>;
+  isCommandPaletteOpen: Ref<boolean>;
+  toggleCommandPalette: () => void;
   topPanelRef?: Ref<{
     closeSessionDropdown?: () => void;
     toggleSessionDropdown?: () => void;
@@ -49,6 +51,8 @@ export function useGlobalShortcuts(options: {
     startSidePanelResize,
     isSettingsOpen,
     isProjectPickerOpen,
+    isCommandPaletteOpen,
+    toggleCommandPalette,
     topPanelRef,
     bringFrontAll,
   } = options;
@@ -149,6 +153,29 @@ export function useGlobalShortcuts(options: {
     }
 
     if (
+      (event.ctrlKey || event.metaKey) &&
+      !event.altKey &&
+      !event.shiftKey &&
+      event.key.toLowerCase() === 'k'
+    ) {
+      event.preventDefault();
+      toggleCommandPalette();
+      return;
+    }
+
+    if (
+      event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      event.shiftKey &&
+      event.key.toLowerCase() === 'p'
+    ) {
+      event.preventDefault();
+      toggleCommandPalette();
+      return;
+    }
+
+    if (
       event.altKey &&
       !event.ctrlKey &&
       !event.metaKey &&
@@ -172,6 +199,11 @@ export function useGlobalShortcuts(options: {
 
     if (event.key !== 'Escape') return;
 
+    if (isCommandPaletteOpen.value) {
+      toggleCommandPalette();
+      lastEscTime = 0;
+      return;
+    }
     if (isSettingsOpen.value) {
       isSettingsOpen.value = false;
       lastEscTime = 0;

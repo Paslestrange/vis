@@ -18,6 +18,10 @@ export const StorageKeys = {
   favorites: {
     messages: 'favorites.messages.v1',
   },
+  session: {
+    tags: 'session.tags.v1',
+    favourites: 'session.favourites.v1',
+  },
   commands: {
     recent: 'commands.recent.v1',
   },

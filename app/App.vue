@@ -10,6 +10,9 @@
           :active-directory="activeDirectory"
           :selected-session-id="selectedSessionId"
           :home-path="homePath"
+          :session-tags="sessionTags"
+          :session-favourites="sessionFavourites"
+          :session-search-contents="sessionContentCache"
           @select-notification="handleNotificationSessionSelect"
           @create-worktree-from="createWorktreeFromWorktree"
           @new-session="createNewSession"
@@ -24,6 +27,10 @@
           @open-settings="isSettingsOpen = true"
           @logout="handleLogout"
           @dropdown-closed="focusInput"
+          @toggle-favourite="sessionTagsState.toggleFavourite"
+          @update-tags="(sid: string, tags: string[]) => sessionTagsState.setTags(sid, tags)"
+          @export-markdown="handleExportMarkdown"
+          @export-json="handleExportJson"
         />
       </header>
       <div
@@ -233,7 +240,7 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, nextTick, ref, reactive, watchEffect, type Ref } from 'vue';
+import { computed, nextTick, ref, reactive, watch, watchEffect, type Ref } from 'vue';
 import { bundledThemes } from 'shiki/bundle/web';
 import InputPanel from './components/InputPanel.vue';
 import OutputPanel from './components/OutputPanel.vue';
@@ -261,7 +268,8 @@ import { useReasoningWindows } from './composables/useReasoningWindows';
 import { useServerState } from './composables/useServerState';
 import { useSessionSelection } from './composables/useSessionSelection';
 import { useSubagentWindows } from './composables/useSubagentWindows';
-import type { MessagePart } from './types/sse';
+import { useSessionTags } from './composables/useSessionTags';
+import type { MessageInfo, MessagePart, TextPart } from './types/sse';
 import { resolveProjectColorHex } from './utils/stateBuilder';
 import * as opencodeApi from './utils/opencode';
 import { opencodeTheme, resolveTheme, resolveAgentColor } from './utils/theme';
@@ -312,6 +320,9 @@ const inputPanelRef = ref<{ focus: () => void; reset: () => void } | null>(null)
 const outputPanelRef = ref<{ panelEl: HTMLDivElement | null } | null>(null);
 
 const fw = useFloatingWindows();
+const sessionTagsState = useSessionTags();
+const { sessionTags, sessionFavourites } = sessionTagsState;
+const sessionContentCache = reactive<Record<string, string>>({});
 const serverState = useServerState();
 const openCodeApi = useOpenCodeApi(serverState.projects);
 const bootstrapReady = serverState.bootstrapped;
@@ -381,6 +392,32 @@ const sessionScope = ge.session(selectedSessionId, computed(() => { const r: Rec
 const mainSessionScope = ge.mainSession(selectedSessionId);
 const msg = useMessages();
 msg.bindScope(mainSessionScope);
+
+watch(
+  [() => selectedSessionId.value, () => msg.messages.value],
+  () => {
+    const sessionId = selectedSessionId.value;
+    if (!sessionId) return;
+    const chunks: string[] = [];
+    for (const entryRef of msg.messages.value.values()) {
+      const entry = entryRef.value;
+      if (!entry.info) continue;
+      const summary = (entry.info as Record<string, unknown>).summary as
+        | Record<string, unknown>
+        | undefined;
+      if (typeof summary?.title === 'string') chunks.push(summary.title);
+      if (typeof summary?.body === 'string') chunks.push(summary.body);
+      for (const partRef of entry.parts) {
+        const part = partRef.value;
+        if (part.type === 'text' && typeof part.text === 'string') {
+          chunks.push(part.text);
+        }
+      }
+    }
+    sessionContentCache[sessionId] = chunks.join('\n');
+  },
+  { immediate: true },
+);
 
 const reasoning = useReasoningWindows({ selectedSessionId, fw, reasoningComponent: SubagentContent, theme: () => shikiTheme.value, reasoningCloseDelayMs: REASONING_CLOSE_DELAY_MS, resolveModelName: (providerID: string, modelID: string) => { const key = `${providerID}/${modelID}`; return modelOptions.value.find((m) => m.id === key)?.displayName; }, suppressAutoWindows });
 const { updateReasoningExpiry } = reasoning;
@@ -592,6 +629,67 @@ async function handleEditMessage(payload: { sessionId: string; part: MessagePart
   const nextText = window.prompt('Edit message', payload.part.text); if (nextText === null) return;
   const trimmed = nextText.trimEnd(); if (!trimmed) return; if (trimmed === payload.part.text) return;
   try { const part = { ...payload.part, text: trimmed }; await opencodeApi.patchMessagePart({ sessionID: payload.sessionId, messageID: part.messageID, partID: part.id, part, directory: directory || undefined }); } catch (error) { console.error('Failed to update message part', error); }
+}
+
+function triggerDownload(filename: string, content: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function fetchSessionMessageEntries(sessionId: string): Promise<Array<{ info: MessageInfo; parts: MessagePart[] }>> {
+  if (sessionId === selectedSessionId.value) {
+    const result: Array<{ info: MessageInfo; parts: MessagePart[] }> = [];
+    for (const entryRef of msg.messages.value.values()) {
+      const entry = entryRef.value;
+      if (!entry.info) continue;
+      const parts: MessagePart[] = [];
+      for (const partRef of entry.parts) {
+        parts.push(partRef.value);
+      }
+      result.push({ info: entry.info, parts });
+    }
+    result.sort((a, b) => (a.info.time.created ?? 0) - (b.info.time.created ?? 0));
+    return result;
+  }
+  const directory = activeDirectory.value.trim();
+  const data = (await opencodeApi.listSessionMessages(sessionId, {
+    directory: directory || undefined,
+  })) as Array<{ info?: unknown; parts?: unknown[] }>;
+  const result: Array<{ info: MessageInfo; parts: MessagePart[] }> = [];
+  for (const entry of data) {
+    const info = entry.info as MessageInfo | undefined;
+    if (!info) continue;
+    const parts = Array.isArray(entry.parts) ? (entry.parts as MessagePart[]) : [];
+    result.push({ info, parts });
+  }
+  result.sort((a, b) => (a.info.time.created ?? 0) - (b.info.time.created ?? 0));
+  return result;
+}
+
+async function handleExportMarkdown(sessionId: string) {
+  const entries = await fetchSessionMessageEntries(sessionId);
+  const lines: string[] = [`# Session ${sessionId} Transcript\n`];
+  for (const { info, parts } of entries) {
+    const role = info.role === 'user' ? 'User' : 'Assistant';
+    lines.push(`## ${role}\n`);
+    const texts = parts
+      .filter((p): p is TextPart => p.type === 'text' && typeof p.text === 'string')
+      .map((p) => p.text);
+    lines.push(texts.join('\n') || '*(no text content)*', '');
+  }
+  triggerDownload(`session-${sessionId}.md`, lines.join('\n'), 'text/markdown');
+}
+
+async function handleExportJson(sessionId: string) {
+  const entries = await fetchSessionMessageEntries(sessionId);
+  triggerDownload(`session-${sessionId}.json`, JSON.stringify(entries, null, 2), 'application/json');
 }
 
 useLifecycleWatches({

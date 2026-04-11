@@ -85,4 +85,18 @@ function onKeydown(e: KeyboardEvent) {
 .ui-dropdown-search-input::placeholder {
   color: #64748b;
 }
+
+html.theme-light .ui-dropdown-search-input {
+  border-color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.9);
+  color: #0f172a;
+}
+
+html.theme-light .ui-dropdown-search-input:focus {
+  border-color: #3b82f6;
+}
+
+html.theme-light .ui-dropdown-search-input::placeholder {
+  color: #94a3b8;
+}
 </style>

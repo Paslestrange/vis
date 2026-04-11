@@ -114,4 +114,14 @@ a.ui-dropdown-item {
 .ui-dropdown-item.is-disabled {
   cursor: default;
 }
+
+html.theme-light .ui-dropdown-item.is-active {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+html.theme-light .ui-dropdown-item:hover,
+html.theme-light .ui-dropdown-item[aria-selected='true'] {
+  background: rgba(226, 232, 240, 0.9);
+}
 </style>

@@ -1,6 +1,10 @@
 import { nextTick, watch, watchEffect, onMounted, onBeforeUnmount, type Ref, type ComputedRef } from 'vue';
 import { buildThinkingOptions } from './useModelOptions';
 import {
+  setAuthorization,
+  setBaseUrl,
+} from '../utils/opencode';
+import {
   StorageKeys,
   storageGet,
   storageRemove,
@@ -33,7 +37,6 @@ export function useLifecycleWatches(options: {
   reloadSelectedSessionState: () => Promise<void>;
   selectedProjectId: Ref<string>;
   messageMeta: { syncActiveSelectionToWorker: () => void; ensureBrowserNotificationPermission: () => void };
-  opencodeApi: { setBaseUrl: (url: string) => void; setAuthorization: (auth: string) => void };
   isThinking: ComputedRef<boolean>;
   updateReasoningExpiry: (sessionId: string, state: 'busy' | 'idle') => void;
   selectedModel: Ref<string>;
@@ -121,7 +124,6 @@ export function useLifecycleWatches(options: {
     reloadSelectedSessionState,
     selectedProjectId,
     messageMeta,
-    opencodeApi,
     isThinking,
     updateReasoningExpiry,
     selectedModel,
@@ -243,8 +245,8 @@ export function useLifecycleWatches(options: {
   watch([selectedProjectId, selectedSessionId], messageMeta.syncActiveSelectionToWorker, { immediate: true });
 
   watchEffect(() => {
-    opencodeApi.setBaseUrl(credentials.baseUrl.value);
-    opencodeApi.setAuthorization(credentials.authHeader.value);
+    setBaseUrl(credentials.baseUrl.value);
+    setAuthorization(credentials.authHeader.value);
   });
 
   watch(isThinking, (active) => {

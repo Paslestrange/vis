@@ -609,9 +609,10 @@ function handleSwitchWorktree(directory: string) {
   if (!project) return;
   const sandbox = project.sandboxes[directory];
   if (!sandbox) return;
-  const candidates = sandbox.rootSessions
+  const rootCandidates = sandbox.rootSessions
     .map((id) => sandbox.sessions[id])
-    .filter((s): s is NonNullable<typeof s> => Boolean(s) && !s.timeArchived)
+    .filter((s): s is NonNullable<typeof s> => Boolean(s) && !s.timeArchived);
+  const candidates = (rootCandidates.length > 0 ? rootCandidates : Object.values(sandbox.sessions).filter((s): s is NonNullable<typeof s> => Boolean(s) && !s.timeArchived))
     .sort((a, b) => (b.timeUpdated ?? b.timeCreated ?? 0) - (a.timeUpdated ?? a.timeCreated ?? 0));
   if (candidates.length > 0) {
     void switchSessionSelection(projectId, candidates[0].id);
@@ -718,7 +719,7 @@ useLifecycleWatches({
   credentials, toolWindowCanvasEl, fw, updateFloatingExtentObserver, projectDirectory, activeDirectory, selectedSessionId,
   isBootstrapping: ref(false), bootstrapReady, pickPreferredSessionId, filteredSessions, validateSelectedSession,
   uiInitState, syncFloatingExtent, inputPanelRef, shellManager,
-  reloadSelectedSessionState, selectedProjectId, messageMeta, opencodeApi: openCodeApi as any, isThinking, updateReasoningExpiry,
+  reloadSelectedSessionState, selectedProjectId, messageMeta, isThinking, updateReasoningExpiry,
   selectedModel, modelOptions, thinkingOptions, selectedThinking, fetchCommands, reloadTodosForAllowedSessions, sidePanelCollapsed,
   persistSidePanelCollapsed, sidePanelActiveTab, persistSidePanelTab, allowedSessionIds, fetchProviders, ge, sessionScope, mainSessionScope,
   connectionState, reconnectingMessage, sendStatus, credentialsClear: () => credentials.clear(), initErrorMessage, loginUrl, loginUsername,

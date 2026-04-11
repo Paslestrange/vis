@@ -175,6 +175,9 @@ export function useMcpPermissions(options: {
     upsertPermissionEntry,
     removePermissionEntry,
     prunePermissionEntries,
+    upsertMcpPermissionEntry: upsertPermissionEntry,
+    removeMcpPermissionEntry: removePermissionEntry,
+    pruneMcpPermissionEntries: prunePermissionEntries,
     handlePermissionReply,
     isPermissionSessionAllowed,
   };

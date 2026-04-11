@@ -1871,4 +1871,87 @@ html.theme-light .bookmark-toast {
   border-color: rgba(34, 197, 94, 0.3);
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
 }
+
+html.theme-light .input-panel {
+  color: #0f172a;
+}
+
+html.theme-light .input-message {
+  background-color: rgba(255, 255, 255, 0.96);
+  border-color: #cbd5e1;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+}
+
+html.theme-light .input-toolbar {
+  border-top-color: rgba(203, 213, 225, 0.5);
+}
+
+html.theme-light :deep(.input-control) {
+  color: #64748b;
+}
+
+html.theme-light :deep(.input-control):hover:not(:disabled) {
+  background: rgba(203, 213, 225, 0.5);
+  color: #0f172a;
+}
+
+html.theme-light .dropdown-empty {
+  color: #94a3b8;
+}
+
+html.theme-light .agent-dropdown-name {
+  color: #0f172a;
+}
+
+html.theme-light .agent-dropdown-description {
+  color: #64748b;
+}
+
+html.theme-light .model-button-provider {
+  color: #94a3b8;
+}
+
+html.theme-light .model-button-name {
+  color: #0f172a;
+}
+
+html.theme-light .model-dropdown-name {
+  color: #0f172a;
+}
+
+html.theme-light .model-dropdown-path {
+  color: #64748b;
+}
+
+html.theme-light .input-textarea {
+  color: #0f172a;
+}
+
+html.theme-light .attachment-list {
+  border-top-color: #e2e8f0;
+}
+
+html.theme-light .attachment-item {
+  border-color: #e2e8f0;
+  background: rgba(241, 245, 249, 0.85);
+}
+
+html.theme-light .attachment-thumb {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+html.theme-light .attachment-name {
+  color: #0f172a;
+}
+
+html.theme-light .attachment-type {
+  color: #64748b;
+}
+
+html.theme-light .attachment-remove {
+  background: #e2e8f0;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
 </style>

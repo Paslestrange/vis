@@ -668,4 +668,55 @@ function getThreadUserRenderKey(root: MessageInfo): string {
 .output-entry-attachment.clickable {
   cursor: pointer;
 }
+
+html.theme-light .thread-block {
+  background: rgba(248, 250, 252, 0.85);
+  border-color: #e2e8f0;
+}
+
+html.theme-light .ib-action {
+  border-color: rgba(148, 163, 184, 0.6);
+  background: rgba(255, 255, 255, 0.9);
+  color: #334155;
+}
+
+html.theme-light .ib-action:hover {
+  background: rgba(241, 245, 249, 0.98);
+}
+
+html.theme-light .ib-action-undo {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+}
+
+html.theme-light .ib-action-undo:hover {
+  background: rgba(59, 130, 246, 0.22);
+}
+
+html.theme-light .ib-action-history {
+  border-color: rgba(148, 163, 184, 0.45);
+  background: rgba(241, 245, 249, 0.85);
+  color: #64748b;
+}
+
+html.theme-light .ib-action-history:hover {
+  background: rgba(226, 232, 240, 0.95);
+  color: #475569;
+}
+
+html.theme-light .ib-error-bar {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #dc2626;
+}
+
+html.theme-light .ib-error-icon {
+  color: #dc2626;
+}
+
+html.theme-light .output-entry-attachment {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+}
 </style>

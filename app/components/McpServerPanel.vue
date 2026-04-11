@@ -4,7 +4,8 @@ import { Icon } from '@iconify/vue';
 import type { McpServerConfig } from '../composables/useMcpServers';
 
 const props = defineProps<{
-  servers: McpServerConfig[];
+  open: boolean;
+  servers: readonly McpServerConfig[];
   statusByName?: Record<string, { status: string; error?: string }>;
 }>();
 
@@ -91,7 +92,7 @@ function handleSubmit() {
   if (editingName.value) {
     emit('update', editingName.value, { command, args, env });
   } else {
-    if (servers.some((s) => s.name === name)) {
+    if (props.servers.some((s) => s.name === name)) {
       formError.value = `Server "${name}" already exists`;
       return;
     }

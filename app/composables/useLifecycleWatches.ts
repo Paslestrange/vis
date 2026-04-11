@@ -1,6 +1,10 @@
 import { nextTick, watch, watchEffect, onMounted, onBeforeUnmount, type Ref, type ComputedRef } from 'vue';
 import { buildThinkingOptions } from './useModelOptions';
 import {
+  setAuthorization,
+  setBaseUrl,
+} from '../utils/opencode';
+import {
   StorageKeys,
   storageGet,
   storageRemove,
@@ -18,6 +22,7 @@ export function useLifecycleWatches(options: {
     load: () => void;
   };
   toolWindowCanvasEl: Ref<HTMLDivElement | null>;
+  fw: { open: (key: string, options: any) => void };
   updateFloatingExtentObserver: () => void;
   projectDirectory: Ref<string>;
   activeDirectory: Ref<string>;
@@ -26,15 +31,12 @@ export function useLifecycleWatches(options: {
   bootstrapReady: Ref<boolean>;
   pickPreferredSessionId: (list: any[]) => string;
   filteredSessions: ComputedRef<any[]>;
-  validateSelectedSession: () => void;
   uiInitState: Ref<'loading' | 'ready' | 'error' | 'login'>;
   syncFloatingExtent: () => void;
   inputPanelRef: Ref<{ focus: () => void } | null>;
-  shellManager: { restoreShellSessions: () => Promise<void> | void };
   reloadSelectedSessionState: () => Promise<void>;
   selectedProjectId: Ref<string>;
-  messageMeta: { syncActiveSelectionToWorker: () => void };
-  opencodeApi: { setBaseUrl: (url: string) => void; setAuthorization: (auth: string) => void };
+  messageMeta: { syncActiveSelectionToWorker: () => void; ensureBrowserNotificationPermission: () => void };
   isThinking: ComputedRef<boolean>;
   updateReasoningExpiry: (sessionId: string, state: 'busy' | 'idle') => void;
   selectedModel: Ref<string>;
@@ -69,7 +71,6 @@ export function useLifecycleWatches(options: {
   getBundledThemeNames: () => string[];
   pickShikiTheme: (names: string[]) => string;
   shikiTheme: Ref<string>;
-  appLayout: { handlePointerMove: (e: PointerEvent) => void; handlePointerUp: (e: PointerEvent) => void };
   handleWindowResize: () => void;
   handleComposerDraftStorage: (e: StorageEvent) => void;
   messageMetaHandleWindowAttentionChange: () => void;
@@ -106,6 +107,7 @@ export function useLifecycleWatches(options: {
   const {
     credentials,
     toolWindowCanvasEl,
+    fw,
     updateFloatingExtentObserver,
     projectDirectory,
     activeDirectory,
@@ -118,11 +120,9 @@ export function useLifecycleWatches(options: {
     uiInitState,
     syncFloatingExtent,
     inputPanelRef,
-    shellManager: shellManagerRestore,
     reloadSelectedSessionState,
     selectedProjectId,
     messageMeta,
-    opencodeApi,
     isThinking,
     updateReasoningExpiry,
     selectedModel,
@@ -158,12 +158,13 @@ export function useLifecycleWatches(options: {
     handleComposerDraftStorage,
     messageMetaHandleWindowAttentionChange,
     handleGlobalKeydown,
+    bootstrapSelections,
     suppressAutoWindows,
     toolWindows,
-    msg,
-    reasoning,
-    subagentWindows,
-    retryStatus,
+    msg: _msg,
+    reasoning: _reasoning,
+    subagentWindows: _subagentWindows,
+    retryStatus: _retryStatus,
     todosBySessionId,
     todoErrorBySessionId,
     normalizeTodoItems,
@@ -232,7 +233,7 @@ export function useLifecycleWatches(options: {
       nextTick(() => {
         syncFloatingExtent();
         inputPanelRef.value?.focus();
-        void shellManagerRestore.restoreShellSessions();
+        void shellManager.restoreShellSessions();
       });
     },
     { immediate: true },
@@ -243,8 +244,8 @@ export function useLifecycleWatches(options: {
   watch([selectedProjectId, selectedSessionId], messageMeta.syncActiveSelectionToWorker, { immediate: true });
 
   watchEffect(() => {
-    opencodeApi.setBaseUrl(credentials.baseUrl.value);
-    opencodeApi.setAuthorization(credentials.authHeader.value);
+    setBaseUrl(credentials.baseUrl.value);
+    setAuthorization(credentials.authHeader.value);
   });
 
   watch(isThinking, (active) => {
@@ -327,8 +328,6 @@ export function useLifecycleWatches(options: {
     const availableThemes = getBundledThemeNames();
     const chosenTheme = pickShikiTheme(availableThemes);
     if (chosenTheme) shikiTheme.value = chosenTheme;
-    window.addEventListener('pointermove', appLayout.handlePointerMove);
-    window.addEventListener('pointerup', appLayout.handlePointerUp);
     window.addEventListener('resize', handleWindowResize);
     window.addEventListener('storage', handleComposerDraftStorage as any);
     document.addEventListener('visibilitychange', messageMetaHandleWindowAttentionChange);
@@ -518,8 +517,6 @@ export function useLifecycleWatches(options: {
 
   onBeforeUnmount(() => {
     window.removeEventListener('keydown', handleGlobalKeydown);
-    window.removeEventListener('pointermove', appLayout.handlePointerMove);
-    window.removeEventListener('pointerup', appLayout.handlePointerUp);
     window.removeEventListener('resize', handleWindowResize);
     window.removeEventListener('storage', handleComposerDraftStorage as any);
     document.removeEventListener('visibilitychange', messageMetaHandleWindowAttentionChange);

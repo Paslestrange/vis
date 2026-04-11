@@ -98,7 +98,7 @@ export function useMessageMeta(deps: {
     if (isWindowAttentive()) return;
     if (Notification.permission !== 'granted') return;
     const session = sessions().find(
-      (entry) =
+      (entry) =>
         entry.id === sessionId && resolveProjectIdForSession(entry.id) === projectId,
     );
     const kind =

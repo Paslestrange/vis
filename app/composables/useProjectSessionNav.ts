@@ -208,9 +208,13 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
         const worktreeDirectory = project.worktree;
         const sandboxEntries = Object.values(project.sandboxes)
           .map((sandbox) => {
-            const sessionsForSandbox = sandbox.rootSessions
+            const rootSessionsList = sandbox.rootSessions
               .map((sessionId) => sandbox.sessions[sessionId])
-              .filter((session): session is NonNullable<typeof session> => Boolean(session))
+              .filter((session): session is NonNullable<typeof session> => Boolean(session));
+            const sessionsForSandbox = (rootSessionsList.length > 0
+              ? rootSessionsList
+              : Object.values(sandbox.sessions).filter((session): session is NonNullable<typeof session> => Boolean(session))
+            )
               .map((session) => ({
                 id: session.id,
                 title: session.title,

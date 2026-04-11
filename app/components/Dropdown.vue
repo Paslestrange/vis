@@ -488,4 +488,16 @@ defineExpose({ moveHighlight, selectHighlighted, updateSearch, clearHighlight })
   visibility: hidden;
   pointer-events: none;
 }
+
+html.theme-light .ui-dropdown-button {
+  background: #ffffff;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
+html.theme-light .ui-dropdown-menu {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: #cbd5e1;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+}
 </style>

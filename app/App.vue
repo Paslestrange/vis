@@ -511,7 +511,7 @@ const { messageInput, attachments, handleMessageInputUpdate, persistComposerDraf
 
 const sessionMutations = useSessionMutations({ selectedProjectId, selectedSessionId, activeDirectory, sessionError, sendStatus, ensureConnectionReady, openCodeApi, switchSessionSelection, reloadSelectedSessionState, seedForkedSessionComposerDraft: buildComposerDraftFromUserMessage });
 
-const chatActions = useChatActions({ ensureConnectionReady, activeDirectory, selectedSessionId, filteredSessions, messageInput, attachments, selectedMode, selectedModel, selectedThinking, modelOptions, parseProviderModelKey, opencodeApi: openCodeApi as any, shellManager: { openShellFromInput: (input: string) => shellManager.openShellFromInput(input) }, runAppDebugCommand, commands, requireSelectedWorktree, enableFollow, clearComposerDraftForCurrentContext, busyDescendantSessionIds, isThinking, uiInitState, connectionState, sendStatus, pickPreferredSessionId });
+const chatActions = useChatActions({ ensureConnectionReady, activeDirectory, selectedSessionId, filteredSessions, messageInput, attachments, selectedMode, selectedModel, selectedThinking, modelOptions, parseProviderModelKey, opencodeApi: opencodeApi as any, shellManager: { openShellFromInput: (input: string) => shellManager.openShellFromInput(input) }, runAppDebugCommand, commands, requireSelectedWorktree, enableFollow, clearComposerDraftForCurrentContext, busyDescendantSessionIds, isThinking, uiInitState, connectionState, sendStatus, pickPreferredSessionId });
 const { sendMessage, sendCommand, abortSession, parseSlashCommand, findCommandByName, isSending, isAborting, commandOptions, canSend, canAbort } = chatActions;
 
 const paletteSessions = computed(() => {

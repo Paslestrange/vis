@@ -49,8 +49,28 @@ export function useAppLayout(deps: {
       maxHeight: maxInputHeight,
     };
     inputHeight.value = inputRect.height;
-    (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
     event.preventDefault();
+
+    const onMove = (e: PointerEvent) => {
+      if (!inputResizeState.value) return;
+      const { startY, startHeight, minHeight, maxHeight } = inputResizeState.value;
+      const dy = e.clientY - startY;
+      inputHeight.value = clamp(startHeight - dy, minHeight, maxHeight);
+      syncFloatingExtent();
+      shellManager.scheduleShellFitAll();
+    };
+
+    const onUp = () => {
+      if (inputResizeState.value) shellManager.scheduleShellFitAll();
+      inputResizeState.value = null;
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
   }
 
   function startSidePanelResize(event: PointerEvent) {
@@ -72,41 +92,33 @@ export function useAppLayout(deps: {
       maxWidth: maxW,
     };
     sidePanelWidth.value = currentWidth;
-    (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
     event.preventDefault();
-  }
 
-  function handlePointerMove(event: PointerEvent) {
-    if (sidePanelResizeState.value) {
+    const onMove = (e: PointerEvent) => {
+      if (!sidePanelResizeState.value) return;
       const { startX, startWidth, minWidth, maxWidth } = sidePanelResizeState.value;
-      const dx = event.clientX - startX;
+      const dx = e.clientX - startX;
       sidePanelWidth.value = clamp(startWidth + dx, minWidth, maxWidth);
       syncFloatingExtent();
       shellManager.scheduleShellFitAll();
-      return;
-    }
-    if (inputResizeState.value) {
-      const { startY, startHeight, minHeight, maxHeight } = inputResizeState.value;
-      const dy = event.clientY - startY;
-      inputHeight.value = clamp(startHeight - dy, minHeight, maxHeight);
-      syncFloatingExtent();
-      shellManager.scheduleShellFitAll();
-      return;
-    }
-  }
+    };
 
-  function handlePointerUp() {
-    if (inputResizeState.value) shellManager.scheduleShellFitAll();
-    inputResizeState.value = null;
-    if (sidePanelResizeState.value) shellManager.scheduleShellFitAll();
-    sidePanelResizeState.value = null;
+    const onUp = () => {
+      if (sidePanelResizeState.value) shellManager.scheduleShellFitAll();
+      sidePanelResizeState.value = null;
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
   }
 
   const api = {
     startInputResize,
     startSidePanelResize,
-    handlePointerMove,
-    handlePointerUp,
     inputHeight,
     sidePanelWidth,
     syncFloatingExtent,

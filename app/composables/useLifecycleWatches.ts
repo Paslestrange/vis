@@ -71,7 +71,6 @@ export function useLifecycleWatches(options: {
   getBundledThemeNames: () => string[];
   pickShikiTheme: (names: string[]) => string;
   shikiTheme: Ref<string>;
-  appLayout: { handlePointerMove: (e: PointerEvent) => void; handlePointerUp: (e: PointerEvent) => void };
   handleWindowResize: () => void;
   handleComposerDraftStorage: (e: StorageEvent) => void;
   messageMetaHandleWindowAttentionChange: () => void;
@@ -329,8 +328,6 @@ export function useLifecycleWatches(options: {
     const availableThemes = getBundledThemeNames();
     const chosenTheme = pickShikiTheme(availableThemes);
     if (chosenTheme) shikiTheme.value = chosenTheme;
-    window.addEventListener('pointermove', appLayout.handlePointerMove);
-    window.addEventListener('pointerup', appLayout.handlePointerUp);
     window.addEventListener('resize', handleWindowResize);
     window.addEventListener('storage', handleComposerDraftStorage as any);
     document.addEventListener('visibilitychange', messageMetaHandleWindowAttentionChange);
@@ -520,8 +517,6 @@ export function useLifecycleWatches(options: {
 
   onBeforeUnmount(() => {
     window.removeEventListener('keydown', handleGlobalKeydown);
-    window.removeEventListener('pointermove', appLayout.handlePointerMove);
-    window.removeEventListener('pointerup', appLayout.handlePointerUp);
     window.removeEventListener('resize', handleWindowResize);
     window.removeEventListener('storage', handleComposerDraftStorage as any);
     document.removeEventListener('visibilitychange', messageMetaHandleWindowAttentionChange);

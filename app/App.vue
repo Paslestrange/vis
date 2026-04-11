@@ -739,7 +739,7 @@ useLifecycleWatches({
   selectedModel, modelOptions, thinkingOptions, selectedThinking, fetchCommands, reloadTodosForAllowedSessions, sidePanelCollapsed,
   persistSidePanelCollapsed, sidePanelActiveTab, persistSidePanelTab, allowedSessionIds, fetchProviders, ge, sessionScope, mainSessionScope,
   connectionState, reconnectingMessage, sendStatus, credentialsClear: () => credentials.clear(), initErrorMessage, loginUrl, loginUsername,
-  loginPassword, loginRequiresAuth, startInitialization, getBundledThemeNames, pickShikiTheme, shikiTheme, appLayout, handleWindowResize,
+  loginPassword, loginRequiresAuth, startInitialization, getBundledThemeNames, pickShikiTheme, shikiTheme, handleWindowResize,
   handleComposerDraftStorage, messageMetaHandleWindowAttentionChange: messageMeta.handleWindowAttentionChange, handleGlobalKeydown,
   bootstrapSelections, suppressAutoWindows, toolWindows, msg, reasoning, subagentWindows, retryStatus, todosBySessionId, todoErrorBySessionId,
   normalizeTodoItems, notificationSessionOrder, upsertPermissionEntry, removePermissionEntry, upsertQuestionEntry,

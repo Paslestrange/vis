@@ -13,7 +13,7 @@
           :session-tags="sessionTags"
           :session-favourites="sessionFavourites"
           :session-search-contents="sessionContentCache"
-          @select-notification="handleNotificationSessionSelect"
+          @select-notification="handleNotificationClick"
           @create-worktree-from="createWorktreeFromWorktree"
           @new-session="createNewSession"
           @new-session-in="handleNewSessionInSandbox"
@@ -505,6 +505,22 @@ const { retryStatus, formatRetryTime, applySessionStatusEvent } = sessionStatus;
 
 const projectNav = useProjectSessionNav({ serverState, openCodeApi, sessionSelection, homePath, sendStatus, ensureConnectionReady, fetchCommands, bootstrapReady, sessionsByProject, fw, ge, msg, reasoning, subagentWindows, shellManager, retryStatus, todosBySessionId, todoLoadingBySessionId, todoErrorBySessionId, focusInput, fetchPendingPermissions, fetchPendingQuestions, allowedSessionIds, sessions, sessionParentById, sessionLabel, isBootstrapping: ref(false), uiInitState, messageMeta, resetFollow, scrollOutputPanelToBottom, reloadTodosForAllowedSessions, sessionError, notificationSessionOrder });
 const { editingProject, isProjectPickerOpen, isSettingsOpen, projectError, worktreeError, navigableTree, topPanelTreeData, currentProjectColor, currentProjectName, editingProjectMeta, notificationSessions, todoPanelSessions, createNewSession, createWorktreeFromWorktree, deleteWorktree, handleProjectDirectorySelect, handleNewSessionInSandbox, openProjectPicker, handleEditProject, handleSaveProject, bootstrapSelections, handleTopPanelSessionSelect, handleNotificationSessionSelect, reloadSelectedSessionState, validateSelectedSession, pickPreferredSessionId, sessionSortKey, readQuerySelection, replaceQuerySelection, createSessionInDirectory, initProjectNameFromPackageJson, resolveProjectIdForDirectory } = projectNav;
+
+function handleNotificationClick() {
+  messageMeta.ensureBrowserNotificationPermission();
+  const total = notificationSessions.value.reduce((sum, item) => sum + item.count, 0);
+  if (total > 0 && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    const notification = new Notification('OpenCode Visualizer', {
+      body: `${total} pending notification${total > 1 ? 's' : ''}`,
+      tag: 'vis-notification-summary',
+    });
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+    };
+  }
+  handleNotificationSessionSelect();
+}
 
 const composerState = useComposerState({ selectedSessionId, selectedModel, selectedThinking, selectedMode, modelOptions, agentOptions, thinkingOptions, agents, applyAgentDefaults, applyModelVariantSelection, resolveDefaultAgentModel, composerDrafts, msg, sendStatus, attachmentMimeAllowlist: ATTACHMENT_MIME_ALLOWLIST, opencodeTheme, resolveTheme, resolveAgentColor, storageKey, StorageKeys, userMessageMetaById });
 const { messageInput, attachments, handleMessageInputUpdate, persistComposerDraftForCurrentContext, clearComposerDraftForCurrentContext, restoreComposerDraftForContext, handleComposerDraftStorage, buildComposerDraftFromUserMessage, handleSelectedModeUpdate, handleSelectedModelUpdate, handleSelectedThinkingUpdate, handleApplyHistoryEntry, handleAddAttachments, removeAttachment, generateAttachmentId, readFileAsDataUrl, hasAgentOptions, hasModelOptions, hasThinkingOptions, canAttach, visibleAgents, resolveAgentColorForName, resolveModelMetaForPath, currentAgentColor } = composerState;

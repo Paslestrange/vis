@@ -1476,4 +1476,146 @@ function onRowDoubleClick(row: { node: TreeNode }) {
   background: rgba(51, 65, 85, 0.55);
   color: #cbd5e1;
 }
+
+html.theme-light .tree-header {
+  border-bottom-color: rgba(148, 163, 184, 0.25);
+}
+
+html.theme-light .tree-branch {
+  color: #64748b;
+}
+
+html.theme-light .tree-branch-picker-trigger:hover {
+  color: #475569;
+}
+
+html.theme-light .tree-branch-chevron {
+  color: #94a3b8;
+}
+
+html.theme-light .tree-branch-menu-meta {
+  color: #94a3b8;
+}
+
+html.theme-light .tree-branch-action-btn {
+  border-color: var(--color-slate-300);
+  background: var(--color-slate-100);
+  color: var(--color-slate-600);
+}
+
+html.theme-light .tree-branch-action-btn:hover {
+  background: var(--color-slate-200);
+}
+
+html.theme-light .tree-branch-fetch-btn {
+  color: var(--color-slate-400);
+}
+
+html.theme-light .tree-branch-fetch-btn:hover {
+  color: var(--color-slate-600);
+  background: var(--color-slate-200);
+}
+
+html.theme-light :deep(.tree-branch-cmd-danger .ui-dropdown-item-content) {
+  color: var(--color-red-500);
+}
+
+html.theme-light :deep(.tree-branch-cmd-merge .ui-dropdown-item-content) {
+  color: var(--color-purple-500);
+}
+
+html.theme-light :deep(.tree-branch-cmd-rebase .ui-dropdown-item-content) {
+  color: var(--color-amber-600);
+}
+
+html.theme-light .tree-branch-menu-empty,
+html.theme-light .tree-branch-menu-error {
+  color: #64748b;
+}
+
+html.theme-light .tree-branch-menu-error {
+  color: #ef4444;
+}
+
+html.theme-light .tree-branch-ahead {
+  color: #16a34a;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+html.theme-light .tree-branch-behind {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+html.theme-light .tree-branch-stats:hover {
+  background: rgba(203, 213, 225, 0.5);
+}
+
+html.theme-light .tree-stat-add {
+  color: #16a34a;
+}
+
+html.theme-light .tree-stat-del {
+  color: #dc2626;
+}
+
+html.theme-light .tree-tabs {
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+html.theme-light .tree-tab {
+  background: rgba(241, 245, 249, 0.85);
+  color: #64748b;
+}
+
+html.theme-light .tree-tab + .tree-tab {
+  border-left-color: rgba(148, 163, 184, 0.35);
+}
+
+html.theme-light .tree-tab.is-active {
+  background: rgba(59, 130, 246, 0.15);
+  color: #0f172a;
+}
+
+html.theme-light .tree-empty {
+  color: #94a3b8;
+}
+
+html.theme-light .tree-row {
+  color: #0f172a;
+}
+
+html.theme-light .tree-row:hover {
+  background: rgba(203, 213, 225, 0.5);
+}
+
+html.theme-light .tree-row.is-selected {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+html.theme-light .tree-toggle {
+  color: #64748b;
+}
+
+html.theme-light .tree-loading,
+html.theme-light .tree-error {
+  color: #94a3b8;
+}
+
+html.theme-light .tree-error {
+  color: #dc2626;
+}
+
+html.theme-light .tree-statusbar {
+  border-top-color: rgba(148, 163, 184, 0.25);
+}
+
+html.theme-light .tree-statusbar-btn {
+  color: #64748b;
+}
+
+html.theme-light .tree-statusbar-btn:hover {
+  background: rgba(203, 213, 225, 0.5);
+  color: #0f172a;
+}
 </style>

@@ -247,4 +247,40 @@ const {
   border: 0;
   border-radius: 0;
 }
+
+html.theme-light .side-panel {
+  border-color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
+}
+
+html.theme-light .side-toggle {
+  border-color: rgba(148, 163, 184, 0.5);
+  background: rgba(241, 245, 249, 0.95);
+  color: #475569;
+}
+
+html.theme-light .side-toggle:hover {
+  background: rgba(226, 232, 240, 0.98);
+}
+
+html.theme-light .side-tabs {
+  border-bottom-color: rgba(148, 163, 184, 0.35);
+}
+
+html.theme-light .side-tab {
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(241, 245, 249, 0.85);
+  color: #64748b;
+}
+
+html.theme-light .side-tab.is-active {
+  background: rgba(59, 130, 246, 0.15);
+  color: #0f172a;
+  border-color: rgba(59, 130, 246, 0.45);
+}
+
+html.theme-light .side-panel.is-collapsed {
+  border-color: rgba(148, 163, 184, 0.5);
+}
 </style>

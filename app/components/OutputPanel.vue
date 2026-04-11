@@ -461,4 +461,54 @@ defineExpose({ panelEl });
     transform: rotate(360deg);
   }
 }
+
+html.theme-light .output-panel-shell {
+  background-color: rgba(255, 255, 255, 0.96);
+  color: #0f172a;
+  border-color: #cbd5e1;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+}
+
+html.theme-light .output-panel-content :deep(.markdown-host code.file-ref) {
+  text-decoration-color: rgba(37, 99, 235, 0.4);
+}
+
+html.theme-light .output-panel-content :deep(.markdown-host code.file-ref:hover) {
+  text-decoration-color: #2563eb;
+  color: #2563eb;
+}
+
+html.theme-light .output-panel-content :deep(.markdown-host code.commit-ref) {
+  text-decoration-color: rgba(37, 99, 235, 0.4);
+}
+
+html.theme-light .output-panel-content :deep(.markdown-host code.commit-ref:hover) {
+  text-decoration-color: #2563eb;
+  color: #2563eb;
+}
+
+html.theme-light .output-panel-content :deep(.markdown-host code.color-ref::before) {
+  border-color: rgba(0, 0, 0, 0.2);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
+}
+
+html.theme-light .project-name-bar {
+  color: color-mix(in srgb, var(--project-tint, #64748b) 60%, #64748b);
+}
+
+html.theme-light .follow-button {
+  border-color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.98);
+  color: #0f172a;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+}
+
+html.theme-light .follow-button:hover {
+  background: rgba(241, 245, 249, 0.98);
+}
+
+html.theme-light .app-loading-spinner {
+  border-color: rgba(71, 85, 105, 0.35);
+  border-top-color: #0f172a;
+}
 </style>

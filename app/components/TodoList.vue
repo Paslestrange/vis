@@ -214,4 +214,71 @@ function statusIcon(status: string) {
   color: #86efac;
   border-color: rgba(74, 222, 128, 0.6);
 }
+
+html.theme-light .todo-header {
+  border-bottom-color: rgba(148, 163, 184, 0.25);
+}
+
+html.theme-light .todo-title {
+  color: #0f172a;
+}
+
+html.theme-light .todo-count {
+  color: #64748b;
+}
+
+html.theme-light .todo-empty {
+  color: #94a3b8;
+}
+
+html.theme-light .todo-group {
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(241, 245, 249, 0.7);
+}
+
+html.theme-light .todo-group-header {
+  border-bottom-color: rgba(148, 163, 184, 0.25);
+}
+
+html.theme-light .todo-group-title {
+  color: #0f172a;
+}
+
+html.theme-light .todo-badge {
+  border-color: rgba(59, 130, 246, 0.35);
+  color: #2563eb;
+  background: rgba(59, 130, 246, 0.12);
+}
+
+html.theme-light .todo-error {
+  color: #dc2626;
+}
+
+html.theme-light .todo-item {
+  color: #334155;
+}
+
+html.theme-light .todo-status {
+  color: #0f172a;
+}
+
+html.theme-light .todo-priority {
+  color: #475569;
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+html.theme-light .todo-priority.is-high {
+  color: #dc2626;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+html.theme-light .todo-priority.is-medium {
+  color: #ca8a04;
+  border-color: rgba(234, 179, 8, 0.4);
+}
+
+html.theme-light .todo-priority.is-low {
+  color: #16a34a;
+  border-color: rgba(34, 197, 94, 0.35);
+}
 </style>

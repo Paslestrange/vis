@@ -514,4 +514,12 @@ html.theme-light .worktree-dropdown-branch {
 html.theme-light .worktree-dropdown-empty {
   color: #64748b;
 }
+
+html.theme-light .worktree-title {
+  color: #0f172a;
+}
+
+html.theme-light .worktree-header {
+  border-bottom-color: rgba(148, 163, 184, 0.25);
+}
 </style>

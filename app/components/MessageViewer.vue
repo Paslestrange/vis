@@ -143,4 +143,22 @@ const mergedProps = computed(() => ({
   color: #e2e8f0;
   border-bottom-color: #60a5fa;
 }
+
+html.theme-light .viewer-tabs {
+  background: rgba(255, 255, 255, 0.98);
+  border-bottom-color: rgba(203, 213, 225, 0.6);
+}
+
+html.theme-light .viewer-tab {
+  color: #64748b;
+}
+
+html.theme-light .viewer-tab:hover {
+  color: #475569;
+}
+
+html.theme-light .viewer-tab.active {
+  color: #0f172a;
+  border-bottom-color: #2563eb;
+}
 </style>

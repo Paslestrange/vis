@@ -144,6 +144,7 @@
               :selected-mode="selectedMode"
               :selected-model="selectedModel"
               :selected-thinking="selectedThinking"
+              :prompt-queue="selectedSessionQueue"
               @update:message-input="handleMessageInputUpdate"
               @update:selected-mode="handleSelectedModeUpdate"
               @update:selected-model="handleSelectedModelUpdate"
@@ -154,6 +155,7 @@
               @add-attachments="handleAddAttachments"
               @remove-attachment="removeAttachment"
               @open-image="toolWindows.handleOpenImage"
+              @cancel-queued-prompt="cancelQueuedPrompt"
             />
           </footer>
         </div>
@@ -528,7 +530,23 @@ const { messageInput, attachments, handleMessageInputUpdate, persistComposerDraf
 const sessionMutations = useSessionMutations({ selectedProjectId, selectedSessionId, activeDirectory, sessionError, sendStatus, ensureConnectionReady, openCodeApi, switchSessionSelection, reloadSelectedSessionState, seedForkedSessionComposerDraft: buildComposerDraftFromUserMessage });
 
 const chatActions = useChatActions({ ensureConnectionReady, activeDirectory, selectedSessionId, filteredSessions, messageInput, attachments, selectedMode, selectedModel, selectedThinking, modelOptions, parseProviderModelKey, opencodeApi: opencodeApi as any, shellManager: { openShellFromInput: (input: string) => shellManager.openShellFromInput(input) }, runAppDebugCommand, commands, requireSelectedWorktree, enableFollow, clearComposerDraftForCurrentContext, busyDescendantSessionIds, isThinking, uiInitState, connectionState, sendStatus, pickPreferredSessionId });
-const { sendMessage, sendCommand, abortSession, parseSlashCommand, findCommandByName, isSending, isAborting, commandOptions, canSend, canAbort } = chatActions;
+const { sendMessage, sendCommand, abortSession, parseSlashCommand, findCommandByName, isSending, isAborting, commandOptions, canSend, canAbort, promptQueue, cancelQueuedPrompt, tryDrainQueue } = chatActions;
+
+const selectedSessionStatus = computed(() => {
+  const session = filteredSessions.value.find((s) => s.id === selectedSessionId.value);
+  return session?.status;
+});
+const selectedSessionQueue = computed(() => promptQueue.value.filter((i) => i.sessionId === selectedSessionId.value));
+watch(selectedSessionStatus, (status, prevStatus) => {
+  if ((prevStatus === 'busy' || prevStatus === 'retry') && status === 'idle' && selectedSessionId.value) {
+    void tryDrainQueue(selectedSessionId.value);
+  }
+});
+watch(() => connectionState.value, (state, prevState) => {
+  if (state === 'ready' && prevState !== 'ready') {
+    void tryDrainQueue();
+  }
+});
 
 const paletteSessions = computed(() => {
   const list: Array<{ id: string; projectId: string; title?: string; slug?: string; directory?: string }> = [];

@@ -45,6 +45,18 @@ type ModelOption = {
   attachmentCapable?: boolean;
 };
 
+export type PromptQueueItem = {
+  id: string;
+  sessionId: string;
+  directory: string;
+  text: string;
+  attachments: Attachment[];
+  agent: string;
+  model: { providerID?: string; modelID: string };
+  variant?: string;
+  command?: { name: string; args: string; match: CommandInfo } | null;
+};
+
 export interface UseChatActionsOptions {
   ensureConnectionReady: (action: string) => boolean;
   activeDirectory: Ref<string>;
@@ -101,12 +113,11 @@ export function useChatActions(options: UseChatActionsOptions) {
   const isSending = ref(false);
   const isAborting = ref(false);
   const recentUserInputs: { text: string; time: number }[] = [];
+  const promptQueue = ref<PromptQueueItem[]>([]);
 
   const canSend = computed(() =>
     Boolean(
-      options.uiInitState.value === 'ready' &&
-        options.connectionState.value === 'ready' &&
-        options.selectedSessionId.value &&
+      options.selectedSessionId.value &&
         !isSending.value &&
         (options.messageInput.value.trim().length > 0 || options.attachments.value.length > 0),
     ),
@@ -173,6 +184,74 @@ export function useChatActions(options: UseChatActionsOptions) {
     });
   }
 
+  async function executeSend(item: PromptQueueItem) {
+    isSending.value = true;
+    options.sendStatus.value = 'Sending...';
+    try {
+      if (item.command?.match) {
+        await options.opencodeApi.sendCommand(item.sessionId, {
+          directory: item.directory || undefined,
+          command: item.command.match.name,
+          arguments: item.command.args,
+          agent: item.command.match.agent || item.agent,
+          model: item.command.match.model || options.selectedModel.value,
+          variant: item.variant,
+        });
+        options.sendStatus.value = 'Sent.';
+      } else {
+        const parts = [] as Array<Record<string, unknown>>;
+        if (item.text) parts.push({ type: 'text', text: item.text });
+        if (item.attachments.length) {
+          parts.push(
+            ...item.attachments.map((att) => ({
+              type: 'file',
+              mime: att.mime,
+              url: att.dataUrl,
+              filename: att.filename,
+            })),
+          );
+        }
+        await options.opencodeApi.sendPromptAsync(item.sessionId, {
+          directory: item.directory,
+          agent: item.agent,
+          model: item.model,
+          variant: item.variant,
+          parts,
+        });
+        options.sendStatus.value = 'Sent.';
+      }
+    } catch (error) {
+      options.sendStatus.value = `Send failed: ${toErrorMessage(error)}`;
+    } finally {
+      isSending.value = false;
+      void tryDrainQueue(item.sessionId);
+    }
+  }
+
+  function buildQueueItem(
+    sessionId: string,
+    directory: string,
+    text: string,
+    slash: ReturnType<typeof parseSlashCommand>,
+    commandMatch: CommandInfo | null,
+  ): PromptQueueItem {
+    const selectedInfo = options.modelOptions.value.find((model) => model.id === options.selectedModel.value);
+    const selectedModelIDs = options.parseProviderModelKey(options.selectedModel.value);
+    const providerID = selectedInfo?.providerID ?? (selectedModelIDs.providerID || undefined);
+    const modelID = selectedInfo?.modelID ?? (selectedModelIDs.modelID || undefined);
+    return {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      sessionId,
+      directory,
+      text,
+      attachments: [...options.attachments.value],
+      agent: options.selectedMode.value,
+      model: { providerID, modelID: modelID || '' },
+      variant: options.selectedThinking.value,
+      command: slash && commandMatch ? { name: slash.name, args: slash.arguments ?? '', match: commandMatch } : null,
+    };
+  }
+
   async function sendMessage() {
     if (!options.ensureConnectionReady('Sending')) return;
     if (!canSend.value) return;
@@ -195,69 +274,78 @@ export function useChatActions(options: UseChatActionsOptions) {
     }
     const slash = hasText ? parseSlashCommand(text) : null;
     const commandMatch = slash ? findCommandByName(slash.name) : null;
-    const selectedInfo = options.modelOptions.value.find((model) => model.id === options.selectedModel.value);
-    const selectedModelIDs = options.parseProviderModelKey(options.selectedModel.value);
-    const providerID = selectedInfo?.providerID ?? (selectedModelIDs.providerID || undefined);
-    const modelID = selectedInfo?.modelID ?? (selectedModelIDs.modelID || undefined);
+
     if (hasText) {
       recentUserInputs.push({ text, time: Date.now() });
       while (recentUserInputs.length > 20) recentUserInputs.shift();
     }
+
     options.messageInput.value = '';
     options.enableFollow();
-    isSending.value = true;
-    options.sendStatus.value = 'Sending...';
-    try {
-      if (slash && slash.name.toLowerCase() === 'shell') {
-        await options.shellManager.openShellFromInput(slash.arguments ?? '');
-        options.sendStatus.value = 'Shell ready.';
-        options.clearComposerDraftForCurrentContext();
-        return;
-      }
-      if (slash && slash.name.toLowerCase() === 'debug') {
-        const debugResult = options.runAppDebugCommand(slash.arguments ?? '');
-        options.sendStatus.value = debugResult.message;
-        options.clearComposerDraftForCurrentContext();
-        return;
-      }
-      if (slash && commandMatch) {
-        await sendCommand(sessionId, commandMatch, slash.arguments ?? '');
-        options.sendStatus.value = 'Sent.';
-        options.clearComposerDraftForCurrentContext();
-        return;
-      }
-      const directory = options.requireSelectedWorktree('send');
-      if (!directory) return;
-      const parts = [] as Array<Record<string, unknown>>;
-      if (hasText) parts.push({ type: 'text', text });
-      if (hasAttachments) {
-        parts.push(
-          ...options.attachments.value.map((item) => ({
-            type: 'file',
-            mime: item.mime,
-            url: item.dataUrl,
-            filename: item.filename,
-          })),
-        );
-      }
-      await options.opencodeApi.sendPromptAsync(sessionId, {
-        directory,
-        agent: options.selectedMode.value,
-        model: {
-          providerID,
-          modelID: modelID || '',
-        },
-        variant: options.selectedThinking.value,
-        parts,
-      });
-      options.sendStatus.value = 'Sent.';
-      options.attachments.value = [];
+
+    if (slash && slash.name.toLowerCase() === 'shell') {
+      await options.shellManager.openShellFromInput(slash.arguments ?? '');
+      options.sendStatus.value = 'Shell ready.';
       options.clearComposerDraftForCurrentContext();
-    } catch (error) {
-      options.sendStatus.value = `Send failed: ${toErrorMessage(error)}`;
-    } finally {
-      isSending.value = false;
+      return;
     }
+    if (slash && slash.name.toLowerCase() === 'debug') {
+      const debugResult = options.runAppDebugCommand(slash.arguments ?? '');
+      options.sendStatus.value = debugResult.message;
+      options.clearComposerDraftForCurrentContext();
+      return;
+    }
+
+    const directory = options.requireSelectedWorktree('send');
+    if (!directory) return;
+
+    const targetSession = options.filteredSessions.value.find((s) => s.id === sessionId);
+    const isTargetBusy = targetSession?.status === 'busy' || targetSession?.status === 'retry';
+    const notReady = options.connectionState.value !== 'ready' || options.uiInitState.value !== 'ready';
+
+    if (isTargetBusy || notReady) {
+      const item = buildQueueItem(sessionId, directory, text, slash, commandMatch);
+      promptQueue.value.push(item);
+      options.attachments.value = [];
+      const queuedForSession = promptQueue.value.filter((i) => i.sessionId === sessionId).length;
+      options.sendStatus.value = queuedForSession > 1 ? `Queued ${queuedForSession} messages` : 'Queued';
+      options.clearComposerDraftForCurrentContext();
+      return;
+    }
+
+    const item = buildQueueItem(sessionId, directory, text, slash, commandMatch);
+    options.attachments.value = [];
+    options.clearComposerDraftForCurrentContext();
+    await executeSend(item);
+  }
+
+  async function tryDrainQueue(targetSessionId?: string) {
+    if (isSending.value) return;
+    if (options.uiInitState.value !== 'ready' || options.connectionState.value !== 'ready') return;
+
+    const queue = promptQueue.value;
+    if (queue.length === 0) return;
+
+    const sessionId = targetSessionId ?? options.selectedSessionId.value;
+    if (!sessionId) return;
+
+    const session = options.filteredSessions.value.find((s) => s.id === sessionId);
+    const isBusy = session?.status === 'busy' || session?.status === 'retry';
+    if (isBusy) return;
+
+    const next = queue.find((item) => item.sessionId === sessionId);
+    if (!next) return;
+
+    promptQueue.value = queue.filter((item) => item.id !== next.id);
+    await executeSend(next);
+  }
+
+  function cancelQueuedPrompt(id: string) {
+    promptQueue.value = promptQueue.value.filter((item) => item.id !== id);
+  }
+
+  function clearQueueForSession(sessionId: string) {
+    promptQueue.value = promptQueue.value.filter((item) => item.sessionId !== sessionId);
   }
 
   async function abortSession() {
@@ -295,5 +383,9 @@ export function useChatActions(options: UseChatActionsOptions) {
     commandOptions,
     canSend,
     canAbort,
+    promptQueue,
+    cancelQueuedPrompt,
+    clearQueueForSession,
+    tryDrainQueue,
   };
 }

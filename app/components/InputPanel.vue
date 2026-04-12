@@ -149,26 +149,6 @@
           <template #trigger><span /></template>
           <template #default>
             <div class="dropdown-list">
-              <template v-if="recentCommandMatches.length > 0 && slashQuery.trim() === ''">
-                <div class="command-section-label">Recently used</div>
-                <DropdownItem
-                  v-for="command in recentCommandMatches"
-                  :key="`recent-${command.name}`"
-                  :value="command.name"
-                >
-                  <div class="command-dropdown-item">
-                    <div class="command-row">
-                      <div class="command-name">/{{ command.name }}</div>
-                      <div v-if="command.hints && command.hints.length > 0" class="command-hint">
-                        {{ command.hints[0] }}
-                      </div>
-                    </div>
-                    <div v-if="command.description" class="command-desc">
-                      {{ command.description }}
-                    </div>
-                  </div>
-                </DropdownItem>
-              </template>
               <DropdownItem
                 v-for="command in commandMatches"
                 :key="command.name"
@@ -671,22 +651,6 @@ const slashQuery = computed(() => {
   return match?.[1] ?? '';
 });
 
-const RECENT_COMMANDS_LIMIT = 5;
-
-const recentCommandNames = ref<string[]>(
-  storageGetJSON<string[]>(StorageKeys.commands.recent) ?? [],
-);
-
-function recordCommandUsage(name: string) {
-  const normalized = name.toLowerCase();
-  const next = [normalized, ...recentCommandNames.value.filter((n) => n !== normalized)].slice(
-    0,
-    RECENT_COMMANDS_LIMIT,
-  );
-  recentCommandNames.value = next;
-  storageSetJSON(StorageKeys.commands.recent, next);
-}
-
 const commandMatches = computed(() => {
   if (!messageValue.value.startsWith('/')) return [];
   if (/\s/.test(messageValue.value.slice(1))) return [];
@@ -697,19 +661,10 @@ const commandMatches = computed(() => {
   return matches.slice(0, limit);
 });
 
-const recentCommandMatches = computed(() => {
-  const recent = recentCommandNames.value
-    .map((name) => (props.commands ?? []).find((c) => c.name.toLowerCase() === name))
-    .filter((c): c is CommandOption => Boolean(c));
-  return recent.slice(0, RECENT_COMMANDS_LIMIT);
-});
-
 const commandPopupDismissed = ref(false);
 
 const commandPopupOpen = computed(() => {
-  const hasMatches = commandMatches.value.length > 0;
-  const hasRecent = recentCommandMatches.value.length > 0 && slashQuery.value.trim() === '';
-  return !commandPopupDismissed.value && (hasMatches || hasRecent);
+  return !commandPopupDismissed.value && commandMatches.value.length > 0;
 });
 watch(
   () => messageValue.value,
@@ -723,7 +678,6 @@ function handleCommandSelect(name: unknown) {
 }
 
 function applyCommandSelection(name: string) {
-  recordCommandUsage(name);
   messageValue.value = `/${name} `;
   nextTick(() => textareaRef.value?.focus());
 }
@@ -838,8 +792,8 @@ function handleKeydown(event: KeyboardEvent) {
     ) {
       event.preventDefault();
       commandDropdownRef.value?.selectHighlighted();
+      return;
     }
-    return;
   }
   // --- Input history: open dropdown when ArrowUp on empty input ---
   if (
@@ -913,7 +867,6 @@ function handleKeydown(event: KeyboardEvent) {
       const commandName = extractSlashCommand(messageValue.value);
       if (hasMatchingCommand(commandName)) {
         event.preventDefault();
-        recordCommandUsage(commandName);
         emit('send');
       }
     }

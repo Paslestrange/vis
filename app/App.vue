@@ -33,6 +33,14 @@
           @export-json="handleExportJson"
         />
       </header>
+      <NavigationIndicator
+        :visible="isOptionPressed"
+        :up-label="navIndicatorUp"
+        :down-label="navIndicatorDown"
+        :left-label="navIndicatorLeft"
+        :right-label="navIndicatorRight"
+        :center-label="currentProjectName"
+      />
       <div
         ref="appBodyEl"
         class="app-body"
@@ -252,7 +260,7 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, nextTick, ref, reactive, watch, watchEffect, type Ref } from 'vue';
+import { computed, nextTick, ref, reactive, watch, watchEffect, onMounted, onBeforeUnmount, type Ref } from 'vue';
 import { bundledThemes } from 'shiki/bundle/web';
 import InputPanel from './components/InputPanel.vue';
 import OutputPanel from './components/OutputPanel.vue';
@@ -262,6 +270,7 @@ import SubagentContent from './components/ToolWindow/Subagent.vue';
 import SidePanel from './components/SidePanel.vue';
 import Welcome from './components/Welcome.vue';
 import TopPanel from './components/TopPanel.vue';
+import NavigationIndicator from './components/NavigationIndicator.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import CommandPalette from './components/CommandPalette.vue';
 import ShortcutHelp from './components/ShortcutHelp.vue';
@@ -375,6 +384,53 @@ const userMessageMetaById = ref<Record<string, { total: number }>>({});
 const userMessageTimeById = ref<Record<string, number>>({});
 const notificationPermissionRequested = ref(false);
 const isAnalyticsOpen = ref(false);
+const isOptionPressed = ref(false);
+
+function navLabel(text: string) {
+  return text || '';
+}
+
+const navIndicatorUp = computed(() => {
+  const tree = navigableTree.value;
+  if (tree.length === 0) return '—';
+  const currentIndex = tree.findIndex((w) => w.projectId === selectedProjectId.value);
+  const baseIndex = currentIndex < 0 ? 0 : currentIndex;
+  const nextIndex = (baseIndex - 1 + tree.length) % tree.length;
+  return navLabel(tree[nextIndex]?.name ?? tree[nextIndex]?.label ?? 'Project');
+});
+
+const navIndicatorDown = computed(() => {
+  const tree = navigableTree.value;
+  if (tree.length === 0) return '—';
+  const currentIndex = tree.findIndex((w) => w.projectId === selectedProjectId.value);
+  const baseIndex = currentIndex < 0 ? 0 : currentIndex;
+  const nextIndex = (baseIndex + 1) % tree.length;
+  return navLabel(tree[nextIndex]?.name ?? tree[nextIndex]?.label ?? 'Project');
+});
+
+const navIndicatorLeft = computed(() => {
+  const tree = navigableTree.value;
+  const worktree = tree.find((w) => w.projectId === selectedProjectId.value);
+  if (!worktree) return '—';
+  const flatSessions = worktree.sandboxes.flatMap((s) => s.sessions);
+  if (flatSessions.length === 0) return '—';
+  const currentIndex = flatSessions.findIndex((s) => s.id === selectedSessionId.value);
+  if (currentIndex < 0) return navLabel(flatSessions[0]?.title || flatSessions[0]?.slug || 'Session');
+  const nextIndex = (currentIndex + 1) % flatSessions.length;
+  return navLabel(flatSessions[nextIndex]?.title || flatSessions[nextIndex]?.slug || 'Session');
+});
+
+const navIndicatorRight = computed(() => {
+  const tree = navigableTree.value;
+  const worktree = tree.find((w) => w.projectId === selectedProjectId.value);
+  if (!worktree) return '—';
+  const flatSessions = worktree.sandboxes.flatMap((s) => s.sessions);
+  if (flatSessions.length === 0) return '—';
+  const currentIndex = flatSessions.findIndex((s) => s.id === selectedSessionId.value);
+  if (currentIndex < 0) return navLabel(flatSessions[0]?.title || flatSessions[0]?.slug || 'Session');
+  const nextIndex = (currentIndex - 1 + flatSessions.length) % flatSessions.length;
+  return navLabel(flatSessions[nextIndex]?.title || flatSessions[nextIndex]?.slug || 'Session');
+});
 
 function resolveProjectIdForSession(sessionId: string): string {
   const preferredProjectId = selectedProjectId.value.trim();
@@ -748,6 +804,28 @@ async function handleExportJson(sessionId: string) {
   const entries = await fetchSessionMessageEntries(sessionId);
   triggerDownload(`session-${sessionId}.json`, JSON.stringify(entries, null, 2), 'application/json');
 }
+
+function handleOptionKeydown(event: KeyboardEvent) {
+  if (event.altKey && !event.ctrlKey && !event.metaKey) {
+    isOptionPressed.value = true;
+  }
+}
+
+function handleOptionKeyup(event: KeyboardEvent) {
+  if (event.key === 'Alt' || !event.altKey) {
+    isOptionPressed.value = false;
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleOptionKeydown);
+  window.addEventListener('keyup', handleOptionKeyup);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleOptionKeydown);
+  window.removeEventListener('keyup', handleOptionKeyup);
+});
 
 useLifecycleWatches({
   credentials, toolWindowCanvasEl, fw, updateFloatingExtentObserver, projectDirectory, activeDirectory, selectedSessionId,

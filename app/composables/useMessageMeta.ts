@@ -102,12 +102,12 @@ export function useMessageMeta(deps: {
         entry.id === sessionId && resolveProjectIdForSession(entry.id) === projectId,
     );
     const kind =
-      type === 'permission' ? 'Permission' : type === 'question' ? 'Question' : 'Session idle';
+      type === 'permission' ? 'Permission' : type === 'question' ? 'Question' : 'Task done';
     const body =
       type === 'idle'
         ? session
-          ? `${sessionLabel(session)} is now idle.`
-          : `Session ${sessionId} is now idle.`
+          ? `Task done in ${sessionLabel(session)}`
+          : `Task done in session ${sessionId}`
         : session
           ? `${sessionLabel(session)} requires your response.`
           : `Session ${sessionId} requires your response.`;

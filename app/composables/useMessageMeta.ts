@@ -40,6 +40,9 @@ export type MessageTokens = {
   };
 };
 
+const historyCache = new Map<string, Array<Record<string, unknown>>>();
+const HISTORY_CACHE_MAX_SIZE = 10;
+
 export function useMessageMeta(deps: {
   notificationPermissionRequested: Ref<boolean>;
   sessions: () => SessionInfo[];
@@ -199,6 +202,37 @@ export function useMessageMeta(deps: {
     userMessageTimeById.value = { ...userMessageTimeById.value, [messageId]: messageTime };
   }
 
+  function getCachedHistory(sessionId: string): Array<Record<string, unknown>> | undefined {
+    return historyCache.get(sessionId);
+  }
+
+  function setCachedHistory(sessionId: string, data: Array<Record<string, unknown>>) {
+    if (historyCache.size >= HISTORY_CACHE_MAX_SIZE) {
+      const firstKey = historyCache.keys().next().value;
+      if (firstKey !== undefined) {
+        historyCache.delete(firstKey);
+      }
+    }
+    historyCache.set(sessionId, data);
+  }
+
+  function loadCachedHistory(sessionId: string) {
+    const cached = getCachedHistory(sessionId);
+    if (!cached) return false;
+    msg.loadHistory(cached);
+    cached.forEach((message) => {
+      const info = message.info as Record<string, unknown> | undefined;
+      const id = typeof info?.id === 'string' ? info.id : undefined;
+      if (!id) return;
+      const meta = parseUserMessageMeta(info);
+      const messageTime = parseMessageTime(info);
+      storeUserMessageMeta(id, meta);
+      storeUserMessageTime(id, messageTime);
+    });
+    notifyContentChange(false);
+    return true;
+  }
+
   async function fetchHistory(sessionId: string, isSubagentMessage = false) {
     if (!sessionId) return;
     const requestId = !isSubagentMessage ? ++primaryHistoryRequestId.value : 0;
@@ -213,6 +247,7 @@ export function useMessageMeta(deps: {
         if (requestId !== primaryHistoryRequestId.value) return;
         if (selectedSessionId.value !== sessionId) return;
         if (getSelectedWorktreeDirectory() !== requestedDirectory) return;
+        setCachedHistory(sessionId, data);
       }
       msg.loadHistory(data);
 
@@ -245,5 +280,7 @@ export function useMessageMeta(deps: {
     storeUserMessageMeta,
     storeUserMessageTime,
     fetchHistory,
+    loadCachedHistory,
+    getCachedHistory,
   };
 }

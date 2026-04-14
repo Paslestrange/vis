@@ -283,6 +283,9 @@ export function useOutputHandlers(options: UseOutputHandlersOptions) {
 
   function readSidePanelCollapsed() {
     const raw = storageGet(StorageKeys.state.sidePanelCollapsed);
+    if (raw === null) {
+      return typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
+    }
     return raw === '1';
   }
 

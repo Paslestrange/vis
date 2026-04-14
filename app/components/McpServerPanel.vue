@@ -4,7 +4,6 @@ import { Icon } from '@iconify/vue';
 import type { McpServerConfig } from '../composables/useMcpServers';
 
 const props = defineProps<{
-  open: boolean;
   servers: readonly McpServerConfig[];
   statusByName?: Record<string, { status: string; error?: string }>;
 }>();
@@ -129,17 +128,7 @@ function getStatusLabel(status?: string) {
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="fade">
-      <div v-if="open" class="mcp-panel-backdrop" @click.self="emit('close')">
-        <div class="mcp-panel">
-          <header class="mcp-panel-header">
-            <div class="mcp-panel-title">MCP Servers</div>
-            <button type="button" class="mcp-panel-close" @click="emit('close')">
-              <Icon icon="lucide:x" :width="14" :height="14" />
-            </button>
-          </header>
-
+  <div class="mcp-panel">
           <div class="mcp-panel-body">
             <div class="mcp-servers">
               <div v-if="servers.length === 0" class="mcp-empty">No MCP servers configured.</div>
@@ -222,25 +211,14 @@ function getStatusLabel(status?: string) {
             </form>
           </div>
         </div>
-      </div>
-    </Transition>
-  </Teleport>
 </template>
 
 <style scoped>
-.mcp-panel-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(2, 6, 23, 0.65);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 20000;
-}
-
 .mcp-panel {
-  width: min(560px, 95vw);
-  max-height: min(720px, 90vh);
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -251,36 +229,6 @@ function getStatusLabel(status?: string) {
   box-shadow: 0 12px 32px rgba(2, 6, 23, 0.45);
   color: #e2e8f0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
-}
-
-.mcp-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.mcp-panel-title {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.mcp-panel-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  background: transparent;
-  color: #94a3b8;
-  cursor: pointer;
-}
-
-.mcp-panel-close:hover {
-  background: #1e293b;
-  color: #e2e8f0;
 }
 
 .mcp-panel-body {
@@ -457,16 +405,6 @@ function getStatusLabel(status?: string) {
 
 .mcp-secondary-button:hover {
   background: #1e293b;
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
 }
 
 html.theme-light .mcp-panel {

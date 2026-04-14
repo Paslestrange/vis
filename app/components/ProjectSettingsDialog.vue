@@ -1,18 +1,5 @@
 <template>
-  <dialog
-    ref="dialogRef"
-    class="modal-backdrop"
-    @close="$emit('close')"
-    @pointerdown.stop
-    @click.self="dialogRef?.close()"
-  >
-    <div class="modal">
-      <header class="modal-header">
-        <div class="modal-title">Project Settings</div>
-        <button type="button" class="modal-close-button" @click="dialogRef?.close()">
-          <Icon icon="lucide:x" :width="14" :height="14" />
-        </button>
-      </header>
+  <div class="modal">
       <form class="modal-body" @submit.prevent="handleSubmit">
         <div class="field">
           <label class="field-label">Name</label>
@@ -104,12 +91,11 @@
           </button>
         </div>
       </form>
-    </div>
-  </dialog>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed } from 'vue';
+import { ref, reactive, watch, computed, onMounted } from 'vue';
 import { Icon } from '@iconify/vue';
 import * as opencodeApi from '../utils/opencode';
 
@@ -125,7 +111,6 @@ const COLOR_HEX: Record<string, { text: string; bg: string }> = {
 };
 
 const props = defineProps<{
-  open: boolean;
   projectId: string;
   worktree: string;
   name?: string;
@@ -148,7 +133,6 @@ const emit = defineEmits<{
   ): void;
 }>();
 
-const dialogRef = ref<HTMLDialogElement | null>(null);
 const iconInput = ref<HTMLInputElement | null>(null);
 const saving = ref(false);
 const dragOver = ref(false);
@@ -186,26 +170,22 @@ function swatchStyle(key: string) {
   return { color: c.text, backgroundColor: c.bg };
 }
 
-watch(
-  () => props.open,
-  (open) => {
-    const el = dialogRef.value;
-    if (!el) return;
-    if (open) {
-      form.name = props.name || defaultName.value;
-      form.color = props.iconColor || 'pink';
-      form.iconUrl = props.iconOverride || '';
-      form.startup = props.commandsStart || '';
-      saving.value = false;
-      dragOver.value = false;
-      packageJsonName.value = undefined;
-      if (!el.open) el.showModal();
-      void fetchPackageJsonName();
-    } else if (el.open) {
-      el.close();
-    }
-  },
-);
+function initForm() {
+  form.name = props.name || defaultName.value;
+  form.color = props.iconColor || 'pink';
+  form.iconUrl = props.iconOverride || '';
+  form.startup = props.commandsStart || '';
+  saving.value = false;
+  dragOver.value = false;
+  packageJsonName.value = undefined;
+}
+
+onMounted(() => {
+  initForm();
+  void fetchPackageJsonName();
+});
+
+watch(() => props.projectId, initForm, { immediate: true });
 
 async function fetchPackageJsonName() {
   if (!props.worktree) return;
@@ -272,33 +252,11 @@ async function handleSubmit() {
 </script>
 
 <style scoped>
-.modal-backdrop {
-  border: none;
-  padding: 0;
-  margin: 0;
-  background: transparent;
-  color: inherit;
-  position: fixed;
-  inset: 0;
+.modal {
   width: 100%;
   height: 100%;
   max-width: none;
   max-height: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.modal-backdrop:not([open]) {
-  display: none;
-}
-
-.modal-backdrop::backdrop {
-  background: rgba(2, 6, 23, 0.65);
-}
-
-.modal {
-  width: min(480px, 95vw);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -309,36 +267,6 @@ async function handleSubmit() {
   box-shadow: 0 12px 32px rgba(2, 6, 23, 0.45);
   color: #e2e8f0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.modal-title {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.modal-close-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  background: transparent;
-  color: #94a3b8;
-  cursor: pointer;
-}
-
-.modal-close-button:hover {
-  background: #1e293b;
-  color: #e2e8f0;
 }
 
 .modal-body {

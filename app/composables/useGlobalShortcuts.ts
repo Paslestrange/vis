@@ -23,12 +23,14 @@ export function useGlobalShortcuts(options: {
   toggleSidePanelCollapsed: () => void;
   startInputResize: (event: PointerEvent) => void;
   startSidePanelResize: (event: PointerEvent) => void;
-  isSettingsOpen: Ref<boolean>;
-  isAnalyticsOpen?: Ref<boolean>;
-  isProjectPickerOpen: Ref<boolean>;
+  openAnalytics: () => void;
+  openShortcutHelp: () => void;
+  closeShortcutHelp: () => boolean;
+  openSettings: () => void;
+  closeSettings: () => boolean;
+  closeProjectPicker: () => boolean;
   isCommandPaletteOpen: Ref<boolean>;
   toggleCommandPalette: () => void;
-  isShortcutHelpOpen?: Ref<boolean>;
   topPanelRef?: Ref<{
     closeSessionDropdown?: () => void;
     toggleSessionDropdown?: () => void;
@@ -51,12 +53,14 @@ export function useGlobalShortcuts(options: {
     toggleSidePanelCollapsed,
     startInputResize,
     startSidePanelResize,
-    isSettingsOpen,
-    isAnalyticsOpen,
-    isProjectPickerOpen,
+    openAnalytics,
+    openShortcutHelp,
+    closeShortcutHelp,
+    openSettings,
+    closeSettings,
+    closeProjectPicker,
     isCommandPaletteOpen,
     toggleCommandPalette,
-    isShortcutHelpOpen,
     topPanelRef,
     bringFrontAll,
   } = options;
@@ -129,9 +133,7 @@ export function useGlobalShortcuts(options: {
 
     if (event.ctrlKey && !event.metaKey && !event.altKey && event.shiftKey && event.key.toLowerCase() === 'a') {
       event.preventDefault();
-      if (isAnalyticsOpen) {
-        isAnalyticsOpen.value = true;
-      }
+      openAnalytics();
       return;
     }
 
@@ -217,18 +219,14 @@ export function useGlobalShortcuts(options: {
         active?.getAttribute('contenteditable') === 'true';
       if (!isTyping) {
         event.preventDefault();
-        if (isShortcutHelpOpen) {
-          isShortcutHelpOpen.value = true;
-        }
+        openShortcutHelp();
         return;
       }
     }
 
     if (event.ctrlKey && !event.metaKey && !event.altKey && event.key === '/') {
       event.preventDefault();
-      if (isShortcutHelpOpen) {
-        isShortcutHelpOpen.value = true;
-      }
+      openShortcutHelp();
       return;
     }
 
@@ -239,18 +237,15 @@ export function useGlobalShortcuts(options: {
       lastEscTime = 0;
       return;
     }
-    if (isShortcutHelpOpen?.value) {
-      isShortcutHelpOpen.value = false;
+    if (closeShortcutHelp()) {
       lastEscTime = 0;
       return;
     }
-    if (isSettingsOpen.value) {
-      isSettingsOpen.value = false;
+    if (closeSettings()) {
       lastEscTime = 0;
       return;
     }
-    if (isProjectPickerOpen.value) {
-      isProjectPickerOpen.value = false;
+    if (closeProjectPicker()) {
       lastEscTime = 0;
       return;
     }

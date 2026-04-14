@@ -34,7 +34,7 @@
           placeholder="Select session"
           title="Select session (Ctrl-G)"
           auto-close
-          :popup-style="{ minWidth: '420px', width: 'min(680px, 90vw)', maxWidth: '90vw' }"
+          :popup-style="{ minWidth: 'min(280px, 90vw)', width: 'min(680px, 92vw)', maxWidth: '92vw' }"
           popup-class="max-lg:left-0! max-lg:w-screen! max-lg:min-w-0! max-lg:max-w-none!"
           @select="onTreeSelect"
         >
@@ -323,7 +323,7 @@
 
         <button
           type="button"
-          class="control-button new-session-button"
+          class="control-button new-session-button hidden sm:flex"
           :disabled="!selectedSessionId"
           @click="$emit('new-session')"
           title="New session (Ctrl-;)"
@@ -332,7 +332,7 @@
         </button>
         <button
           type="button"
-          class="control-button open-shell-button"
+          class="control-button open-shell-button hidden sm:flex"
           :disabled="!activeDirectory"
           @click="$emit('open-shell')"
           title="Open shell"
@@ -345,7 +345,7 @@
           href="https://github.com/Paslestrange/vis/"
           target="_blank"
           rel="noopener noreferrer"
-          class="control-button github-button"
+          class="control-button github-button hidden sm:flex"
           title="GitHub"
         >
           <Icon icon="lucide:github" :width="16" :height="16" />

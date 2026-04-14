@@ -41,12 +41,26 @@ const TOOL_RUNNING_TTL_MS = 1000 * 60 * 10;
 const TOOL_COMPLETED_TTL_MS = 2000;
 const TITLEBAR_VISIBLE_PX = 32;
 
+function getDefaultWidth(): number {
+  if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+    return Math.min(600, window.innerWidth - 24);
+  }
+  return 600;
+}
+
+function getDefaultHeight(): number {
+  if (typeof window !== 'undefined' && window.innerHeight <= 768) {
+    return Math.min(400, window.innerHeight - 120);
+  }
+  return 400;
+}
+
 const DEFAULT_OPTS: Partial<FloatingWindowEntry> = {
   closable: false,
   resizable: false,
   scroll: 'force',
-  width: 600,
-  height: 400,
+  width: getDefaultWidth(),
+  height: getDefaultHeight(),
 };
 
 let renderIdCounter = 0;
@@ -176,6 +190,7 @@ export function useFloatingWindows() {
     const existing = entriesMap.get(key);
 
     // Merge with defaults and existing
+    const closable = opts.closable ?? existing?.closable ?? false;
     const merged: FloatingWindowEntry = {
       ...DEFAULT_OPTS,
       ...existing,
@@ -184,7 +199,7 @@ export function useFloatingWindows() {
       time: Date.now(),
       zIndex: existing
         ? existing.zIndex
-        : nextZIndex(isManualTier(key, opts.closable ?? existing?.closable)),
+        : nextZIndex(isManualTier(key, closable)),
     } as FloatingWindowEntry;
 
     // When updating an existing entry, merge props instead of replacing
@@ -199,8 +214,11 @@ export function useFloatingWindows() {
       merged.y = pos.y;
     }
 
-    // Clamp position to visible bounds
-    const windowWidth = merged.width ?? 600;
+    const maxWidth = Math.max(100, extent.width - 16);
+    const maxHeight = Math.max(80, extent.height - 48);
+    if (merged.width && merged.width > maxWidth) merged.width = maxWidth;
+    if (merged.height && merged.height > maxHeight) merged.height = maxHeight;
+    const windowWidth = merged.width ?? getDefaultWidth();
     const xBounds = getAxisBounds(extent.width, windowWidth, TITLEBAR_VISIBLE_PX);
     const keepVisibleY = Math.max(1, Math.min(TITLEBAR_VISIBLE_PX, extent.height));
     merged.x = Math.max(xBounds.min, Math.min(merged.x, xBounds.max));

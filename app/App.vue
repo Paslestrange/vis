@@ -24,7 +24,7 @@
           @select-session="handleTopPanelSessionSelect"
           @open-directory="openProjectPicker"
           @edit-project="handleEditProject"
-          @open-settings="isSettingsOpen = true"
+          @open-settings="openSettings"
           @logout="handleLogout"
           @dropdown-closed="focusInput"
           @toggle-favourite="sessionTagsState.toggleFavourite"
@@ -91,7 +91,6 @@
                 <div class="output-split">
                   <OutputPanel
                     ref="outputPanelRef"
-                    :key="selectedSessionId"
                     class="output-panel"
                     :project-name="currentProjectName"
                     :project-color="currentProjectColor"
@@ -217,45 +216,7 @@
         </div>
       </div>
     </div>
-    <ProjectPicker :open="isProjectPickerOpen" :home-path="homePath" @close="isProjectPickerOpen = false" @select="handleProjectDirectorySelect" />
-<SettingsModal :open="isSettingsOpen" :theme-mode="mode" @close="isSettingsOpen = false" @update:theme-mode="setMode" @open-analytics="isSettingsOpen = false; isAnalyticsOpen = true" @open-mcp="isMcpPanelOpen = true" />
-    <ShortcutHelp :open="isShortcutHelpOpen" @close="isShortcutHelpOpen = false" />
-    <CommandPalette
-      :open="palette.isOpen.value"
-      :query="palette.query.value"
-      :groups="palette.filteredResults.value"
-      @update:query="(v) => (palette.query.value = v)"
-      @execute="handlePaletteExecute"
-      @close="palette.close()"
-    />
-    <AnalyticsPanel
-      :open="isAnalyticsOpen"
-      :session-id="selectedSessionId"
-      :project-id="selectedProjectId"
-      :context-limit="analyticsContextLimit"
-      @close="isAnalyticsOpen = false"
-    />
-    <McpServerPanel
-      :open="isMcpPanelOpen"
-      :servers="mcpServers.listServers()"
-      @close="isMcpPanelOpen = false"
-      @add="mcpServers.addServer"
-      @update="mcpServers.updateServer"
-      @remove="mcpServers.removeServer"
-      @connect="(name: string) => opencodeApi.connectMcpServer(name, activeDirectory || undefined)"
-      @disconnect="(name: string) => opencodeApi.disconnectMcpServer(name, activeDirectory || undefined)"
-    />
-    <ProjectSettingsDialog
-      :open="!!editingProject"
-      :project-id="editingProject?.projectId ?? ''"
-      :worktree="editingProject?.worktree ?? ''"
-      :name="editingProjectMeta?.name"
-      :icon-color="editingProjectMeta?.icon?.color"
-      :icon-override="editingProjectMeta?.icon?.override"
-      :commands-start="editingProjectMeta?.commands?.start"
-      @close="editingProject = null"
-      @save="handleSaveProject"
-    />
+
   </div>
 </template>
 
@@ -383,7 +344,6 @@ const primaryHistoryRequestId = ref(0);
 const userMessageMetaById = ref<Record<string, { total: number }>>({});
 const userMessageTimeById = ref<Record<string, number>>({});
 const notificationPermissionRequested = ref(false);
-const isAnalyticsOpen = ref(false);
 const isOptionPressed = ref(false);
 
 function navLabel(text: string) {
@@ -534,7 +494,6 @@ const { upsertQuestionEntry, removeQuestionEntry, pruneQuestionEntries, fetchPen
 const { upsertMcpPermissionEntry, removeMcpPermissionEntry, pruneMcpPermissionEntries } = useMcpPermissions({ fw, allowedSessionIds, activeDirectory, ensureConnectionReady: () => true });
 
 const homePath = ref(''); const serverWorktreePath = ref(''); const sidePanelCollapsed = ref(false);
-const isShortcutHelpOpen = ref(false);
 const sidePanelActiveTab = ref<'todo' | 'tree' | 'worktrees'>('tree');
 const { inputHeight, sidePanelWidth } = appLayout;
 
@@ -554,15 +513,19 @@ const notificationSessionOrder = ref<string[]>([]);
 
 const outputHandlers = useOutputHandlers({ shellManager, fw, toolWindowCanvasEl, inputEl, appEl, inputPanelRef, outputPanelRef, sidePanelCollapsed, sidePanelActiveTab, sidePanelWidth, shikiTheme, sendStatus, serverState, sessions, selectedSessionId, activeDirectory, projectDirectory, notificationSessionOrder, sessionParentById, allowedSessionIds, busyDescendantSessionIds, runDebugCommand, autoScroller: { enableFollow, resetFollow, resumeFollow, scrollToBottom: scrollOutputPanelToBottom }, notifyContentChange, ge, sessionScope, mainSessionScope, connectionState, uiInitState, homePath });
 const { handleWindowResize, syncFloatingExtent, updateFloatingExtentObserver, runAppDebugCommand, handleOutputPanelMessageRendered, handleOutputPanelResumeFollow, handleOutputPanelContentResized, handleOutputPanelInitialRenderComplete, handleFloatingWindowClose, getBundledThemeNames, pickShikiTheme, normalizeDirectory, replaceHomePrefix, resolveWorktreeRelativePath, sessionLabel, getSelectedWorktreeDirectory, requireSelectedWorktree, ensureConnectionReady, readSidePanelCollapsed, persistSidePanelCollapsed, readSidePanelTab, persistSidePanelTab, toggleSidePanelCollapsed, setSidePanelTab, focusInput } = outputHandlers;
-sidePanelCollapsed.value = readSidePanelCollapsed(); sidePanelActiveTab.value = readSidePanelTab();
+const storedSidePanelCollapsed = storageGet(StorageKeys.state.sidePanelCollapsed);
+sidePanelCollapsed.value = readSidePanelCollapsed();
+if (storedSidePanelCollapsed === null && typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches) {
+  sidePanelCollapsed.value = true;
+}
+sidePanelActiveTab.value = readSidePanelTab();
 
 const mcpServers = useMcpServers();
-const isMcpPanelOpen = ref(false);
 const sessionStatus = useSessionStatus({ selectedSessionId, allowedSessionIds, updateReasoningExpiry });
 const { retryStatus, formatRetryTime, applySessionStatusEvent } = sessionStatus;
 
 const projectNav = useProjectSessionNav({ serverState, openCodeApi, sessionSelection, homePath, sendStatus, ensureConnectionReady, fetchCommands, bootstrapReady, sessionsByProject, fw, ge, msg, reasoning, subagentWindows, shellManager, retryStatus, todosBySessionId, todoLoadingBySessionId, todoErrorBySessionId, focusInput, fetchPendingPermissions, fetchPendingQuestions, allowedSessionIds, sessions, sessionParentById, sessionLabel, isBootstrapping: ref(false), uiInitState, messageMeta, resetFollow, scrollOutputPanelToBottom, reloadTodosForAllowedSessions, sessionError, notificationSessionOrder });
-const { editingProject, isProjectPickerOpen, isSettingsOpen, projectError, worktreeError, navigableTree, topPanelTreeData, currentProjectColor, currentProjectName, editingProjectMeta, notificationSessions, todoPanelSessions, createNewSession, createWorktreeFromWorktree, deleteWorktree, handleProjectDirectorySelect, handleNewSessionInSandbox, openProjectPicker, handleEditProject, handleSaveProject, bootstrapSelections, handleTopPanelSessionSelect, handleNotificationSessionSelect, reloadSelectedSessionState, validateSelectedSession, pickPreferredSessionId, sessionSortKey, readQuerySelection, replaceQuerySelection, createSessionInDirectory, initProjectNameFromPackageJson, resolveProjectIdForDirectory } = projectNav;
+const { editingProject, projectError, worktreeError, navigableTree, topPanelTreeData, currentProjectColor, currentProjectName, editingProjectMeta, notificationSessions, todoPanelSessions, createNewSession, createWorktreeFromWorktree, deleteWorktree, handleProjectDirectorySelect, handleNewSessionInSandbox, handleEditProject, handleSaveProject, bootstrapSelections, handleTopPanelSessionSelect, handleNotificationSessionSelect, reloadSelectedSessionState, validateSelectedSession, pickPreferredSessionId, sessionSortKey, readQuerySelection, replaceQuerySelection, createSessionInDirectory, initProjectNameFromPackageJson, resolveProjectIdForDirectory } = projectNav;
 
 function handleNotificationClick() {
   messageMeta.ensureBrowserNotificationPermission();
@@ -579,6 +542,178 @@ function handleNotificationClick() {
   }
   handleNotificationSessionSelect();
 }
+
+function openSettings() {
+  if (fw.has('settings')) {
+    fw.bringToFront('settings');
+    return;
+  }
+  fw.open('settings', {
+    component: SettingsModal,
+    props: {
+      themeMode: mode.value,
+      onClose: () => fw.close('settings'),
+      'onUpdate:themeMode': (m: typeof mode.value) => setMode(m),
+      onOpenAnalytics: () => {
+        fw.close('settings');
+        openAnalytics();
+      },
+      onOpenMcp: () => {
+        fw.close('settings');
+        openMcpPanel();
+      },
+    },
+    title: 'Settings',
+    width: 480,
+    height: 360,
+    closable: true,
+    resizable: true,
+    scroll: 'force',
+    expiry: Infinity,
+  });
+}
+
+function openAnalytics() {
+  if (fw.has('analytics')) {
+    fw.bringToFront('analytics');
+    return;
+  }
+  fw.open('analytics', {
+    component: AnalyticsPanel,
+    props: {
+      sessionId: selectedSessionId.value,
+      projectId: selectedProjectId.value,
+      contextLimit: analyticsContextLimit.value,
+      onClose: () => fw.close('analytics'),
+    },
+    title: 'Analytics',
+    width: 520,
+    height: 420,
+    closable: true,
+    resizable: true,
+    scroll: 'force',
+    expiry: Infinity,
+  });
+}
+
+function openShortcutHelp() {
+  if (fw.has('shortcut-help')) {
+    fw.bringToFront('shortcut-help');
+    return;
+  }
+  fw.open('shortcut-help', {
+    component: ShortcutHelp,
+    props: {
+      onClose: () => fw.close('shortcut-help'),
+    },
+    title: 'Keyboard Shortcuts',
+    width: 360,
+    height: 420,
+    closable: true,
+    resizable: true,
+    scroll: 'force',
+    expiry: Infinity,
+  });
+}
+
+function openMcpPanel() {
+  if (fw.has('mcp-servers')) {
+    fw.bringToFront('mcp-servers');
+    return;
+  }
+  fw.open('mcp-servers', {
+    component: McpServerPanel,
+    props: {
+      servers: mcpServers.listServers(),
+      onClose: () => fw.close('mcp-servers'),
+      onAdd: mcpServers.addServer,
+      onUpdate: mcpServers.updateServer,
+      onRemove: mcpServers.removeServer,
+      onConnect: (name: string) => opencodeApi.connectMcpServer(name, activeDirectory.value || undefined),
+      onDisconnect: (name: string) => opencodeApi.disconnectMcpServer(name, activeDirectory.value || undefined),
+    },
+    title: 'MCP Servers',
+    width: 560,
+    height: 420,
+    closable: true,
+    resizable: true,
+    scroll: 'force',
+    expiry: Infinity,
+  });
+}
+
+watch(mcpServers.servers, () => {
+  if (fw.has('mcp-servers')) {
+    fw.open('mcp-servers', {
+      props: { servers: mcpServers.listServers() },
+    });
+  }
+}, { deep: true });
+
+function openProjectPicker() {
+  if (fw.has('project-picker')) {
+    fw.bringToFront('project-picker');
+    return;
+  }
+  fw.open('project-picker', {
+    component: ProjectPicker,
+    props: {
+      homePath: homePath.value,
+      onClose: () => fw.close('project-picker'),
+      onSelect: (directory: string) => {
+        fw.close('project-picker');
+        void handleProjectDirectorySelect(directory);
+      },
+    },
+    title: 'Open Project',
+    width: 640,
+    height: 320,
+    closable: true,
+    resizable: true,
+    scroll: 'none',
+    expiry: Infinity,
+  });
+}
+
+function openProjectSettingsWindow() {
+  if (!editingProject.value) return;
+  const key = `project-settings-${editingProject.value.projectId}`;
+  fw.closeAll({ exclude: (k) => !k.startsWith('project-settings-') });
+  fw.open(key, {
+    component: ProjectSettingsDialog,
+    props: {
+      projectId: editingProject.value.projectId,
+      worktree: editingProject.value.worktree,
+      name: editingProjectMeta.value?.name,
+      iconColor: editingProjectMeta.value?.icon?.color,
+      iconOverride: editingProjectMeta.value?.icon?.override,
+      commandsStart: editingProjectMeta.value?.commands?.start,
+      onClose: () => {
+        editingProject.value = null;
+        fw.close(key);
+      },
+      onSave: (payload: Parameters<typeof handleSaveProject>[0]) => {
+        handleSaveProject(payload);
+        fw.close(key);
+      },
+    },
+    title: 'Project Settings',
+    width: 480,
+    height: 520,
+    closable: true,
+    resizable: true,
+    scroll: 'force',
+    expiry: Infinity,
+  });
+}
+
+watch(editingProject, (proj) => {
+  if (proj) {
+    openProjectSettingsWindow();
+  } else {
+    fw.closeAll({ exclude: (k) => !k.startsWith('project-settings-') });
+  }
+});
 
 const composerState = useComposerState({ selectedSessionId, selectedModel, selectedThinking, selectedMode, modelOptions, agentOptions, thinkingOptions, agents, applyAgentDefaults, applyModelVariantSelection, resolveDefaultAgentModel, composerDrafts, msg, sendStatus, attachmentMimeAllowlist: ATTACHMENT_MIME_ALLOWLIST, opencodeTheme, resolveTheme, resolveAgentColor, storageKey, StorageKeys, userMessageMetaById });
 const { messageInput, attachments, handleMessageInputUpdate, persistComposerDraftForCurrentContext, clearComposerDraftForCurrentContext, restoreComposerDraftForContext, handleComposerDraftStorage, buildComposerDraftFromUserMessage, handleSelectedModeUpdate, handleSelectedModelUpdate, handleSelectedThinkingUpdate, handleApplyHistoryEntry, handleAddAttachments, removeAttachment, generateAttachmentId, readFileAsDataUrl, hasAgentOptions, hasModelOptions, hasThinkingOptions, canAttach, visibleAgents, resolveAgentColorForName, resolveModelMetaForPath, currentAgentColor } = composerState;
@@ -665,7 +800,7 @@ async function handlePaletteExecute(result: Parameters<typeof palette['flatResul
     return;
   }
   if (result.type === 'settings') {
-    isSettingsOpen.value = true;
+    openSettings();
   }
 }
 
@@ -681,8 +816,117 @@ watch(resolvedMode, async (mode) => {
   }
 }, { immediate: true });
 
-const globalShortcuts = useGlobalShortcuts({ selectedProjectId, selectedSessionId, navigableTree, switchSessionSelection, createNewSession, openShell: (input: string) => shellManager.openShellFromInput(input), notificationSessions, handleNotificationSessionSelect, focusInput, abortSession, canAbort, sidePanelCollapsed, toggleSidePanelCollapsed, startInputResize: appLayout.startInputResize, startSidePanelResize: appLayout.startSidePanelResize, isSettingsOpen, isAnalyticsOpen, isProjectPickerOpen, isShortcutHelpOpen, isCommandPaletteOpen: palette.isOpen, toggleCommandPalette: palette.toggle, topPanelRef });
+const globalShortcuts = useGlobalShortcuts({
+  selectedProjectId,
+  selectedSessionId,
+  navigableTree,
+  switchSessionSelection,
+  createNewSession,
+  openShell: (input: string) => shellManager.openShellFromInput(input),
+  notificationSessions,
+  handleNotificationSessionSelect,
+  focusInput,
+  abortSession,
+  canAbort,
+  sidePanelCollapsed,
+  toggleSidePanelCollapsed,
+  startInputResize: appLayout.startInputResize,
+  startSidePanelResize: appLayout.startSidePanelResize,
+  openAnalytics,
+  openShortcutHelp,
+  closeShortcutHelp: () => {
+    if (!fw.has('shortcut-help')) return false;
+    fw.close('shortcut-help');
+    return true;
+  },
+  openSettings,
+  closeSettings: () => {
+    if (!fw.has('settings')) return false;
+    fw.close('settings');
+    return true;
+  },
+  closeProjectPicker: () => {
+    if (!fw.has('project-picker')) return false;
+    fw.close('project-picker');
+    return true;
+  },
+  isCommandPaletteOpen: palette.isOpen,
+  toggleCommandPalette: palette.toggle,
+  topPanelRef,
+});
 const { handleGlobalKeydown } = globalShortcuts;
+
+watch(
+  () => palette.isOpen.value,
+  (open) => {
+    if (open) {
+      if (fw.has('command-palette')) {
+        fw.bringToFront('command-palette');
+        return;
+      }
+      fw.open('command-palette', {
+        component: CommandPalette,
+        props: {
+          query: palette.query.value,
+          groups: palette.filteredResults.value,
+          'onUpdate:query': (v: string) => {
+            palette.query.value = v;
+          },
+          onExecute: handlePaletteExecute,
+          onClose: () => palette.close(),
+        },
+        title: 'Command Palette',
+        width: 560,
+        height: 420,
+        closable: true,
+        resizable: true,
+        scroll: 'none',
+        expiry: Infinity,
+      });
+    } else {
+      fw.close('command-palette');
+    }
+  },
+);
+
+watch(
+  () => palette.query.value,
+  () => {
+    if (fw.has('command-palette')) {
+      fw.open('command-palette', {
+        props: {
+          query: palette.query.value,
+          groups: palette.filteredResults.value,
+          'onUpdate:query': (v: string) => {
+            palette.query.value = v;
+          },
+          onExecute: handlePaletteExecute,
+          onClose: () => palette.close(),
+        },
+      });
+    }
+  },
+);
+
+watch(
+  () => palette.filteredResults.value,
+  () => {
+    if (fw.has('command-palette')) {
+      fw.open('command-palette', {
+        props: {
+          query: palette.query.value,
+          groups: palette.filteredResults.value,
+          'onUpdate:query': (v: string) => {
+            palette.query.value = v;
+          },
+          onExecute: handlePaletteExecute,
+          onClose: () => palette.close(),
+        },
+      });
+    }
+  },
+  { deep: true },
+);
 
 const appInit = useAppInit({ credentials, ge, bootstrapReady, selectedSessionId, activeDirectory, fetchProviders, fetchAgents, fetchCommands, fetchPendingPermissions, fetchPendingQuestions, bootstrapSelections, reloadSelectedSessionState, refreshGitStatus, shellManager, messageMeta, sendStatus, opencodeApi: opencodeApi as any, serverWorktreePath, homePath, uiInitState, connectionState });
 const { initLoadingMessage, initErrorMessage, reconnectingMessage, loginUrl, loginUsername, loginPassword, loginRequiresAuth, startInitialization, handleLogin, handleAbortInit, handleLogout } = appInit;

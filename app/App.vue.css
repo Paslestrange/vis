@@ -335,3 +335,37 @@
   --win-scale-x: 1.5;
   --win-scale-y: 0;
 }
+
+@media (max-width: 768px) {
+  .app {
+    gap: 6px;
+    padding: 6px 6px;
+  }
+
+  .app-header {
+    margin: -6px -6px 0;
+    padding: 6px 8px;
+    width: calc(100% + 12px);
+  }
+
+  .app-body {
+    --todo-panel-gap: 6px;
+    --todo-panel-open-width: min(280px, 75vw);
+    --todo-panel-collapsed-width: 28px;
+  }
+
+  .app-input {
+    min-height: 140px;
+  }
+
+  .input-resizer,
+  .side-resizer {
+    display: none;
+  }
+
+  .tool-window-canvas {
+    --term-font-size: 12px;
+    --term-width: 100vw;
+    --term-height: 50vh;
+  }
+}

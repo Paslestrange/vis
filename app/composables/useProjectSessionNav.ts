@@ -147,6 +147,8 @@ export interface UseProjectSessionNavOptions {
   uiInitState: Ref<'loading' | 'ready' | 'error' | 'login'>;
   messageMeta: {
     fetchHistory: (sessionId: string) => Promise<void>;
+    loadCachedHistory: (sessionId: string) => boolean;
+    getCachedHistory: (sessionId: string) => Array<Record<string, unknown>> | undefined;
   };
   resetFollow: () => void;
   scrollOutputPanelToBottom: (smooth?: boolean) => void;
@@ -176,8 +178,6 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
   }
 
   const editingProject = ref<{ projectId: string; worktree: string } | null>(null);
-  const isProjectPickerOpen = ref(false);
-  const isSettingsOpen = ref(false);
   const projectError = ref('');
   const worktreeError = ref('');
   const notificationSessionOrder = options.notificationSessionOrder ?? ref<string[]>([]);
@@ -525,9 +525,7 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
     }
   }
 
-  function openProjectPicker() {
-    isProjectPickerOpen.value = true;
-  }
+  function openProjectPicker() {}
 
   function handleEditProject(payload: { projectId: string; worktree: string }) {
     editingProject.value = payload;
@@ -555,7 +553,6 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
   }
 
   async function handleProjectDirectorySelect(directory: string) {
-    isProjectPickerOpen.value = false;
     if (!directory) return;
 
     const isNewProject = !Object.values(serverState.projects).some(
@@ -618,16 +615,21 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
     options.isBootstrapping.value = true;
     try {
       if (!serverState.bootstrapped.value) {
-        await new Promise<void>((resolve) => {
+        await new Promise<void>((resolve, reject) => {
           const stop = watch(
             options.bootstrapReady,
             (ready) => {
               if (!ready) return;
               stop();
+              clearTimeout(timer);
               resolve();
             },
             { immediate: true },
           );
+          const timer = setTimeout(() => {
+            stop();
+            reject(new Error('Bootstrap timed out waiting for server state.'));
+          }, 30_000);
         });
       }
 
@@ -661,30 +663,44 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
     options.reasoning.reset();
     options.subagentWindows.reset();
     options.retryStatus.value = null;
-    options.todosBySessionId.value = {};
-    options.todoLoadingBySessionId.value = {};
-    options.todoErrorBySessionId.value = {};
-    if (sessionSelection.selectedSessionId.value) {
-      const sessionId = sessionSelection.selectedSessionId.value;
-      await options.messageMeta.fetchHistory(sessionId);
-      if (options.msg.roots.value.length === 0) {
-        options.scrollOutputPanelToBottom(false);
-      }
-      if (options.uiInitState.value === 'ready') {
-        await options.shellManager.restoreShellSessions();
-      }
-      void options.reloadTodosForAllowedSessions();
-      const directory = sessionSelection.activeDirectory.value || undefined;
-      void options.fetchPendingPermissions(directory);
-      void options.fetchPendingQuestions(directory);
+
+    const sessionId = sessionSelection.selectedSessionId.value;
+    if (!sessionId) {
+      options.focusInput();
+      return;
     }
+
+    const hadCache = options.messageMeta.loadCachedHistory(sessionId);
+    if (options.msg.roots.value.length === 0) {
+      options.scrollOutputPanelToBottom(false);
+    }
+
+    const directory = sessionSelection.activeDirectory.value || undefined;
+
+    const asyncTasks: Promise<unknown>[] = [
+      options.messageMeta.fetchHistory(sessionId),
+    ];
+
+    if (options.uiInitState.value === 'ready') {
+      const restored = options.shellManager.restoreShellSessions();
+      if (restored) asyncTasks.push(restored);
+    }
+
+    void options.reloadTodosForAllowedSessions();
+    void options.fetchPendingPermissions(directory);
+    void options.fetchPendingQuestions(directory);
+
+    if (!hadCache) {
+      await Promise.all(asyncTasks);
+    } else {
+      void Promise.all(asyncTasks);
+    }
+
     options.focusInput();
   }
 
   return {
     editingProject,
-    isProjectPickerOpen,
-    isSettingsOpen,
     projectError,
     worktreeError,
     notificationSessionOrder,

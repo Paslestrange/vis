@@ -1,68 +1,54 @@
 <template>
-  <dialog
-    ref="dialogRef"
-    class="modal-backdrop"
-    @close="$emit('close')"
-    @cancel.prevent
-    @click.self="dialogRef?.close()"
-  >
-    <div class="modal">
-      <Dropdown
-        ref="dropdownRef"
-        :open="dropdownOpen"
-        :auto-close="false"
-        :auto-focus="false"
-        :auto-highlight="false"
-        :popup-style="popupStyle"
-        :popup-class="['picker-popup', { 'is-loading': isLoading }]"
-        class="picker-dropdown"
-        @select="handleItemSelect"
-        @update:open="handleDropdownOpenChange"
-      >
-        <template #trigger>
-          <header class="modal-header">
-            <span class="modal-title">Open project</span>
-            <button type="button" class="modal-close-button" @click="handleClose">
-              <Icon icon="lucide:x" :width="14" :height="14" />
-            </button>
-          </header>
-          <div class="path-row">
-            <input
-              ref="inputRef"
-              :value="rawInput"
-              class="path-input"
-              type="text"
-              placeholder="Directory path..."
-              @input="handleInput"
-              @keydown="handleInputKeydown"
-            />
-            <button type="button" class="open-button" :disabled="!canOpen" @click="handleOpen">
-              Open
-            </button>
-          </div>
-          <div v-if="error" class="error-text">{{ error }}</div>
-        </template>
-
-        <DropdownItem v-if="showCurrentEntry" value=".">./</DropdownItem>
-        <DropdownItem v-if="showParentEntry" value="..">../</DropdownItem>
-        <DropdownItem
-          v-for="item in suggestions"
-          :key="item.name"
-          :value="item.name"
-          :disabled="isDrillDownLocked"
-        >
-          {{ item.name }}/
-        </DropdownItem>
-        <div v-if="!isLoading && suggestions.length === 0 && currentDir" class="picker-empty">
-          {{ parsed.filter ? 'No matches' : 'No subdirectories' }}
+  <div class="modal">
+    <Dropdown
+      ref="dropdownRef"
+      :open="dropdownOpen"
+      :auto-close="false"
+      :auto-focus="false"
+      :auto-highlight="false"
+      :popup-style="popupStyle"
+      :popup-class="['picker-popup', { 'is-loading': isLoading }]"
+      class="picker-dropdown"
+      @select="handleItemSelect"
+      @update:open="handleDropdownOpenChange"
+    >
+      <template #trigger>
+        <div class="path-row">
+          <input
+            ref="inputRef"
+            :value="rawInput"
+            class="path-input"
+            type="text"
+            placeholder="Directory path..."
+            @input="handleInput"
+            @keydown="handleInputKeydown"
+          />
+          <button type="button" class="open-button" :disabled="!canOpen" @click="handleOpen">
+            Open
+          </button>
         </div>
-      </Dropdown>
-    </div>
-  </dialog>
+        <div v-if="error" class="error-text">{{ error }}</div>
+      </template>
+
+      <DropdownItem v-if="showCurrentEntry" value=".">./</DropdownItem>
+      <DropdownItem v-if="showParentEntry" value="..">../</DropdownItem>
+      <DropdownItem
+        v-for="item in suggestions"
+        :key="item.name"
+        :value="item.name"
+        :disabled="isDrillDownLocked"
+      >
+        {{ item.name }}/
+      </DropdownItem>
+      <div v-if="!isLoading && suggestions.length === 0 && currentDir" class="picker-empty">
+        {{ parsed.filter ? 'No matches' : 'No subdirectories' }}
+      </div>
+    </Dropdown>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { Icon } from '@iconify/vue';
 import Dropdown from './Dropdown.vue';
 import DropdownItem from './Dropdown/Item.vue';
@@ -84,7 +70,6 @@ type DropdownHandle = {
 };
 
 const props = defineProps<{
-  open: boolean;
   homePath?: string;
 }>();
 
@@ -94,7 +79,6 @@ const emit = defineEmits<{
 }>();
 
 const dropdownRef = ref<DropdownHandle | null>(null);
-const dialogRef = ref<HTMLDialogElement | null>(null);
 const inputRef = ref<HTMLInputElement | null>(null);
 const rawInput = ref('');
 const isLoading = ref(false);
@@ -181,20 +165,10 @@ watch(currentDir, (dir) => {
   void fetchDirectory(dir);
 });
 
-watch(
-  () => props.open,
-  (open) => {
-    const el = dialogRef.value;
-    if (!el) return;
-    if (open) {
-      if (!el.open) el.showModal();
-      dropdownOpen.value = true;
-      void initPicker();
-    } else if (el.open) {
-      el.close();
-    }
-  },
-);
+onMounted(() => {
+  dropdownOpen.value = true;
+  initPicker();
+});
 
 // ---------------------------------------------------------------------------
 // Initialisation
@@ -423,13 +397,13 @@ function handleOpen() {
 }
 
 function handleClose() {
-  dialogRef.value?.close();
+  emit('close');
 }
 
 function handleDropdownOpenChange(value: boolean) {
   dropdownOpen.value = value;
-  if (!value && props.open) {
-    // Dropdown tried to close (Escape on menu, outside click) — close the modal
+  if (!value) {
+    // Dropdown tried to close (Escape on menu, outside click) — close the window
     handleClose();
   }
 }
@@ -511,34 +485,11 @@ function cleanDirectoryPath(p: string): string {
 </script>
 
 <style scoped>
-.modal-backdrop {
-  border: none;
-  padding: 0;
-  margin: 0;
-  background: transparent;
-  color: inherit;
-  position: fixed;
-  inset: 0;
+.modal {
   width: 100%;
   height: 100%;
   max-width: none;
   max-height: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.modal-backdrop:not([open]) {
-  display: none;
-}
-
-.modal-backdrop::backdrop {
-  background: rgba(2, 6, 23, 0.65);
-}
-
-.modal {
-  width: min(640px, 95vw);
-  max-height: 90vh;
   display: flex;
   flex-direction: column;
   padding: 12px;
@@ -555,18 +506,6 @@ function cleanDirectoryPath(p: string): string {
   flex-direction: column;
   gap: 10px;
   min-height: 0;
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.modal-title {
-  font-size: 14px;
-  font-weight: 600;
 }
 
 .path-row {
@@ -631,23 +570,5 @@ function cleanDirectoryPath(p: string): string {
 .error-text {
   font-size: 12px;
   color: #fecaca;
-}
-
-.modal-close-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  background: transparent;
-  color: #94a3b8;
-  cursor: pointer;
-}
-
-.modal-close-button:hover {
-  background: #1e293b;
-  color: #e2e8f0;
 }
 </style>

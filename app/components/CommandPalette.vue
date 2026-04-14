@@ -1,13 +1,6 @@
 <template>
-  <dialog
-    ref="dialogRef"
-    class="modal-backdrop"
-    @close="handleClose"
-    @cancel.prevent
-    @click.self="handleClose"
-  >
-    <div class="palette" @click.stop>
-      <div class="palette-search">
+  <div class="palette" @click.stop>
+    <div class="palette-search">
         <Icon icon="lucide:search" :width="16" :height="16" class="palette-search-icon" />
         <input
           ref="inputRef"
@@ -67,16 +60,14 @@
         </span>
       </div>
     </div>
-  </dialog>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch, onMounted } from 'vue';
 import { Icon } from '@iconify/vue';
 import type { CommandPaletteGroup, CommandPaletteResult } from '../composables/useCommandPalette';
 
 const props = defineProps<{
-  open: boolean;
   query: string;
   groups: CommandPaletteGroup[];
 }>();
@@ -87,7 +78,6 @@ const emit = defineEmits<{
   (event: 'close'): void;
 }>();
 
-const dialogRef = ref<HTMLDialogElement | null>(null);
 const inputRef = ref<HTMLInputElement | null>(null);
 const resultsRef = ref<HTMLDivElement | null>(null);
 const selectedFlatIndex = ref(0);
@@ -98,6 +88,11 @@ const queryValue = computed({
 });
 
 const flatItems = computed(() => props.groups.flatMap((group) => group.results));
+
+onMounted(() => {
+  selectedFlatIndex.value = 0;
+  nextTick(() => inputRef.value?.focus());
+});
 
 function flatIndexOf(result: CommandPaletteResult): number {
   return flatItems.value.findIndex((item) => item === result);
@@ -169,7 +164,6 @@ function execute(result: CommandPaletteResult) {
 }
 
 function handleClose() {
-  dialogRef.value?.close();
   emit('close');
 }
 
@@ -223,21 +217,6 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 watch(
-  () => props.open,
-  (open) => {
-    const el = dialogRef.value;
-    if (!el) return;
-    if (open) {
-      if (!el.open) el.showModal();
-      selectedFlatIndex.value = 0;
-      nextTick(() => inputRef.value?.focus());
-    } else if (el.open) {
-      el.close();
-    }
-  },
-);
-
-watch(
   () => props.query,
   () => {
     selectedFlatIndex.value = 0;
@@ -246,34 +225,9 @@ watch(
 </script>
 
 <style scoped>
-.modal-backdrop {
-  border: none;
-  padding: 0;
-  margin: 0;
-  background: transparent;
-  color: inherit;
-  position: fixed;
-  inset: 0;
+.palette {
   width: 100%;
   height: 100%;
-  max-width: none;
-  max-height: none;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 15vh;
-}
-
-.modal-backdrop:not([open]) {
-  display: none;
-}
-
-.modal-backdrop::backdrop {
-  background: rgba(2, 6, 23, 0.65);
-}
-
-.palette {
-  width: min(560px, 95vw);
   display: flex;
   flex-direction: column;
   background: rgba(15, 23, 42, 0.98);
@@ -433,10 +387,6 @@ watch(
   border: 1px solid #334155;
   border-radius: 4px;
   padding: 2px 5px;
-}
-
-html.theme-light .modal-backdrop::backdrop {
-  background: rgba(15, 23, 42, 0.25);
 }
 
 html.theme-light .palette {

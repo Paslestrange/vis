@@ -615,16 +615,21 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
     options.isBootstrapping.value = true;
     try {
       if (!serverState.bootstrapped.value) {
-        await new Promise<void>((resolve) => {
+        await new Promise<void>((resolve, reject) => {
           const stop = watch(
             options.bootstrapReady,
             (ready) => {
               if (!ready) return;
               stop();
+              clearTimeout(timer);
               resolve();
             },
             { immediate: true },
           );
+          const timer = setTimeout(() => {
+            stop();
+            reject(new Error('Bootstrap timed out waiting for server state.'));
+          }, 30_000);
         });
       }
 

@@ -513,7 +513,12 @@ const notificationSessionOrder = ref<string[]>([]);
 
 const outputHandlers = useOutputHandlers({ shellManager, fw, toolWindowCanvasEl, inputEl, appEl, inputPanelRef, outputPanelRef, sidePanelCollapsed, sidePanelActiveTab, sidePanelWidth, shikiTheme, sendStatus, serverState, sessions, selectedSessionId, activeDirectory, projectDirectory, notificationSessionOrder, sessionParentById, allowedSessionIds, busyDescendantSessionIds, runDebugCommand, autoScroller: { enableFollow, resetFollow, resumeFollow, scrollToBottom: scrollOutputPanelToBottom }, notifyContentChange, ge, sessionScope, mainSessionScope, connectionState, uiInitState, homePath });
 const { handleWindowResize, syncFloatingExtent, updateFloatingExtentObserver, runAppDebugCommand, handleOutputPanelMessageRendered, handleOutputPanelResumeFollow, handleOutputPanelContentResized, handleOutputPanelInitialRenderComplete, handleFloatingWindowClose, getBundledThemeNames, pickShikiTheme, normalizeDirectory, replaceHomePrefix, resolveWorktreeRelativePath, sessionLabel, getSelectedWorktreeDirectory, requireSelectedWorktree, ensureConnectionReady, readSidePanelCollapsed, persistSidePanelCollapsed, readSidePanelTab, persistSidePanelTab, toggleSidePanelCollapsed, setSidePanelTab, focusInput } = outputHandlers;
-sidePanelCollapsed.value = readSidePanelCollapsed(); sidePanelActiveTab.value = readSidePanelTab();
+const storedSidePanelCollapsed = storageGet(StorageKeys.state.sidePanelCollapsed);
+sidePanelCollapsed.value = readSidePanelCollapsed();
+if (storedSidePanelCollapsed === null && typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches) {
+  sidePanelCollapsed.value = true;
+}
+sidePanelActiveTab.value = readSidePanelTab();
 
 const mcpServers = useMcpServers();
 const sessionStatus = useSessionStatus({ selectedSessionId, allowedSessionIds, updateReasoningExpiry });

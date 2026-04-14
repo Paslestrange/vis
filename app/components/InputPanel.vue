@@ -149,26 +149,6 @@
           <template #trigger><span /></template>
           <template #default>
             <div class="dropdown-list">
-              <template v-if="recentCommandMatches.length > 0 && slashQuery.trim() === ''">
-                <div class="command-section-label">Recently used</div>
-                <DropdownItem
-                  v-for="command in recentCommandMatches"
-                  :key="`recent-${command.name}`"
-                  :value="command.name"
-                >
-                  <div class="command-dropdown-item">
-                    <div class="command-row">
-                      <div class="command-name">/{{ command.name }}</div>
-                      <div v-if="command.hints && command.hints.length > 0" class="command-hint">
-                        {{ command.hints[0] }}
-                      </div>
-                    </div>
-                    <div v-if="command.description" class="command-desc">
-                      {{ command.description }}
-                    </div>
-                  </div>
-                </DropdownItem>
-              </template>
               <DropdownItem
                 v-for="command in commandMatches"
                 :key="command.name"
@@ -370,16 +350,35 @@
             <Icon icon="ph:stop-fill" :width="16" :height="16" />
           </button>
           <button
-            v-else
             type="button"
             class="input-button primary send-button"
             :disabled="props.disabled || !canSend"
-            :title="sendTooltip"
+            :title="isThinking ? 'Queue message' : sendTooltip"
             @click="$emit('send')"
           >
-            <Icon icon="lucide:send" :width="16" :height="16" />
+            <Icon :icon="isThinking ? 'lucide:layers' : 'lucide:send'" :width="16" :height="16" />
+            <span v-if="isThinking && sessionQueue.length" class="send-badge">{{ sessionQueue.length }}</span>
           </button>
         </div>
+      </div>
+      <div v-if="sessionQueue.length" class="prompt-queue-bar">
+        <span class="queue-label">Queued</span>
+        <span
+          v-for="item in sessionQueue"
+          :key="item.id"
+          class="queue-chip"
+          :title="item.text"
+        >
+          {{ item.text.slice(0, 30) }}{{ item.text.length > 30 ? '...' : '' }}
+          <button
+            type="button"
+            class="queue-chip-remove"
+            title="Remove"
+            @click="$emit('cancel-queued-prompt', item.id)"
+          >
+            ×
+          </button>
+        </span>
       </div>
     </div>
   </div>
@@ -428,6 +427,7 @@ const props = defineProps<{
   agentColor?: string;
   resolveAgentColor?: (agent?: string) => string;
   disabled?: boolean;
+  promptQueue?: Array<{ id: string; text: string }>;
 }>();
 
 const emit = defineEmits<{
@@ -449,6 +449,7 @@ const emit = defineEmits<{
   (event: 'add-attachments', files: File[]): void;
   (event: 'remove-attachment', id: string): void;
   (event: 'open-image', payload: { url: string; filename: string }): void;
+  (event: 'cancel-queued-prompt', id: string): void;
 }>();
 
 const messageValue = computed({
@@ -640,6 +641,7 @@ watch(favoritesOpen, (open) => {
 const sendTooltip = computed(() =>
   enterToSend.value ? 'Ctrl-Enter / Enter to send' : 'Ctrl-Enter to send',
 );
+const sessionQueue = computed(() => props.promptQueue ?? []);
 
 const slashQuery = computed(() => {
   const value = messageValue.value;
@@ -648,22 +650,6 @@ const slashQuery = computed(() => {
   const match = trimmed.match(/^(\S*)/);
   return match?.[1] ?? '';
 });
-
-const RECENT_COMMANDS_LIMIT = 5;
-
-const recentCommandNames = ref<string[]>(
-  storageGetJSON<string[]>(StorageKeys.commands.recent) ?? [],
-);
-
-function recordCommandUsage(name: string) {
-  const normalized = name.toLowerCase();
-  const next = [normalized, ...recentCommandNames.value.filter((n) => n !== normalized)].slice(
-    0,
-    RECENT_COMMANDS_LIMIT,
-  );
-  recentCommandNames.value = next;
-  storageSetJSON(StorageKeys.commands.recent, next);
-}
 
 const commandMatches = computed(() => {
   if (!messageValue.value.startsWith('/')) return [];
@@ -675,19 +661,10 @@ const commandMatches = computed(() => {
   return matches.slice(0, limit);
 });
 
-const recentCommandMatches = computed(() => {
-  const recent = recentCommandNames.value
-    .map((name) => (props.commands ?? []).find((c) => c.name.toLowerCase() === name))
-    .filter((c): c is CommandOption => Boolean(c));
-  return recent.slice(0, RECENT_COMMANDS_LIMIT);
-});
-
 const commandPopupDismissed = ref(false);
 
 const commandPopupOpen = computed(() => {
-  const hasMatches = commandMatches.value.length > 0;
-  const hasRecent = recentCommandMatches.value.length > 0 && slashQuery.value.trim() === '';
-  return !commandPopupDismissed.value && (hasMatches || hasRecent);
+  return !commandPopupDismissed.value && commandMatches.value.length > 0;
 });
 watch(
   () => messageValue.value,
@@ -701,7 +678,6 @@ function handleCommandSelect(name: unknown) {
 }
 
 function applyCommandSelection(name: string) {
-  recordCommandUsage(name);
   messageValue.value = `/${name} `;
   nextTick(() => textareaRef.value?.focus());
 }
@@ -816,8 +792,8 @@ function handleKeydown(event: KeyboardEvent) {
     ) {
       event.preventDefault();
       commandDropdownRef.value?.selectHighlighted();
+      return;
     }
-    return;
   }
   // --- Input history: open dropdown when ArrowUp on empty input ---
   if (
@@ -891,7 +867,6 @@ function handleKeydown(event: KeyboardEvent) {
       const commandName = extractSlashCommand(messageValue.value);
       if (hasMatchingCommand(commandName)) {
         event.preventDefault();
-        recordCommandUsage(commandName);
         emit('send');
       }
     }
@@ -1953,5 +1928,99 @@ html.theme-light .attachment-remove {
   background: #e2e8f0;
   color: #0f172a;
   border-color: #cbd5e1;
+}
+
+.prompt-queue-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  border-top: 1px solid #334155;
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.queue-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.queue-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #bfdbfe;
+  max-width: 200px;
+}
+
+.queue-chip-remove {
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #bfdbfe;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.queue-chip-remove:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.send-badge {
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+html.theme-light .prompt-queue-bar {
+  border-color: #cbd5e1;
+  background: rgba(241, 245, 249, 0.6);
+}
+
+html.theme-light .queue-label {
+  color: #64748b;
+}
+
+html.theme-light .queue-chip {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.25);
+  color: #1d4ed8;
+}
+
+html.theme-light .queue-chip-remove {
+  background: rgba(15, 23, 42, 0.1);
+  color: #1d4ed8;
+}
+
+html.theme-light .queue-chip-remove:hover {
+  background: rgba(15, 23, 42, 0.2);
+}
+
+html.theme-light .send-badge {
+  background: rgba(15, 23, 42, 0.15);
+  color: #0f172a;
 }
 </style>

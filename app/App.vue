@@ -33,6 +33,14 @@
           @export-json="handleExportJson"
         />
       </header>
+      <NavigationIndicator
+        :visible="isOptionPressed"
+        :up-label="navIndicatorUp"
+        :down-label="navIndicatorDown"
+        :left-label="navIndicatorLeft"
+        :right-label="navIndicatorRight"
+        :center-label="currentProjectName"
+      />
       <div
         ref="appBodyEl"
         class="app-body"
@@ -144,6 +152,7 @@
               :selected-mode="selectedMode"
               :selected-model="selectedModel"
               :selected-thinking="selectedThinking"
+              :prompt-queue="selectedSessionQueue"
               @update:message-input="handleMessageInputUpdate"
               @update:selected-mode="handleSelectedModeUpdate"
               @update:selected-model="handleSelectedModelUpdate"
@@ -154,6 +163,7 @@
               @add-attachments="handleAddAttachments"
               @remove-attachment="removeAttachment"
               @open-image="toolWindows.handleOpenImage"
+              @cancel-queued-prompt="cancelQueuedPrompt"
             />
           </footer>
         </div>
@@ -250,7 +260,7 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, nextTick, ref, reactive, watch, watchEffect, type Ref } from 'vue';
+import { computed, nextTick, ref, reactive, watch, watchEffect, onMounted, onBeforeUnmount, type Ref } from 'vue';
 import { bundledThemes } from 'shiki/bundle/web';
 import InputPanel from './components/InputPanel.vue';
 import OutputPanel from './components/OutputPanel.vue';
@@ -260,6 +270,7 @@ import SubagentContent from './components/ToolWindow/Subagent.vue';
 import SidePanel from './components/SidePanel.vue';
 import Welcome from './components/Welcome.vue';
 import TopPanel from './components/TopPanel.vue';
+import NavigationIndicator from './components/NavigationIndicator.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import CommandPalette from './components/CommandPalette.vue';
 import ShortcutHelp from './components/ShortcutHelp.vue';
@@ -373,6 +384,53 @@ const userMessageMetaById = ref<Record<string, { total: number }>>({});
 const userMessageTimeById = ref<Record<string, number>>({});
 const notificationPermissionRequested = ref(false);
 const isAnalyticsOpen = ref(false);
+const isOptionPressed = ref(false);
+
+function navLabel(text: string) {
+  return text || '';
+}
+
+const navIndicatorUp = computed(() => {
+  const tree = navigableTree.value;
+  if (tree.length === 0) return '—';
+  const currentIndex = tree.findIndex((w) => w.projectId === selectedProjectId.value);
+  const baseIndex = currentIndex < 0 ? 0 : currentIndex;
+  const nextIndex = (baseIndex - 1 + tree.length) % tree.length;
+  return navLabel(tree[nextIndex]?.name ?? tree[nextIndex]?.label ?? 'Project');
+});
+
+const navIndicatorDown = computed(() => {
+  const tree = navigableTree.value;
+  if (tree.length === 0) return '—';
+  const currentIndex = tree.findIndex((w) => w.projectId === selectedProjectId.value);
+  const baseIndex = currentIndex < 0 ? 0 : currentIndex;
+  const nextIndex = (baseIndex + 1) % tree.length;
+  return navLabel(tree[nextIndex]?.name ?? tree[nextIndex]?.label ?? 'Project');
+});
+
+const navIndicatorLeft = computed(() => {
+  const tree = navigableTree.value;
+  const worktree = tree.find((w) => w.projectId === selectedProjectId.value);
+  if (!worktree) return '—';
+  const flatSessions = worktree.sandboxes.flatMap((s) => s.sessions);
+  if (flatSessions.length === 0) return '—';
+  const currentIndex = flatSessions.findIndex((s) => s.id === selectedSessionId.value);
+  if (currentIndex < 0) return navLabel(flatSessions[0]?.title || flatSessions[0]?.slug || 'Session');
+  const nextIndex = (currentIndex + 1) % flatSessions.length;
+  return navLabel(flatSessions[nextIndex]?.title || flatSessions[nextIndex]?.slug || 'Session');
+});
+
+const navIndicatorRight = computed(() => {
+  const tree = navigableTree.value;
+  const worktree = tree.find((w) => w.projectId === selectedProjectId.value);
+  if (!worktree) return '—';
+  const flatSessions = worktree.sandboxes.flatMap((s) => s.sessions);
+  if (flatSessions.length === 0) return '—';
+  const currentIndex = flatSessions.findIndex((s) => s.id === selectedSessionId.value);
+  if (currentIndex < 0) return navLabel(flatSessions[0]?.title || flatSessions[0]?.slug || 'Session');
+  const nextIndex = (currentIndex - 1 + flatSessions.length) % flatSessions.length;
+  return navLabel(flatSessions[nextIndex]?.title || flatSessions[nextIndex]?.slug || 'Session');
+});
 
 function resolveProjectIdForSession(sessionId: string): string {
   const preferredProjectId = selectedProjectId.value.trim();
@@ -528,7 +586,23 @@ const { messageInput, attachments, handleMessageInputUpdate, persistComposerDraf
 const sessionMutations = useSessionMutations({ selectedProjectId, selectedSessionId, activeDirectory, sessionError, sendStatus, ensureConnectionReady, openCodeApi, switchSessionSelection, reloadSelectedSessionState, seedForkedSessionComposerDraft: buildComposerDraftFromUserMessage });
 
 const chatActions = useChatActions({ ensureConnectionReady, activeDirectory, selectedSessionId, filteredSessions, messageInput, attachments, selectedMode, selectedModel, selectedThinking, modelOptions, parseProviderModelKey, opencodeApi: opencodeApi as any, shellManager: { openShellFromInput: (input: string) => shellManager.openShellFromInput(input) }, runAppDebugCommand, commands, requireSelectedWorktree, enableFollow, clearComposerDraftForCurrentContext, busyDescendantSessionIds, isThinking, uiInitState, connectionState, sendStatus, pickPreferredSessionId });
-const { sendMessage, sendCommand, abortSession, parseSlashCommand, findCommandByName, isSending, isAborting, commandOptions, canSend, canAbort } = chatActions;
+const { sendMessage, sendCommand, abortSession, parseSlashCommand, findCommandByName, isSending, isAborting, commandOptions, canSend, canAbort, promptQueue, cancelQueuedPrompt, tryDrainQueue } = chatActions;
+
+const selectedSessionStatus = computed(() => {
+  const session = filteredSessions.value.find((s) => s.id === selectedSessionId.value);
+  return session?.status;
+});
+const selectedSessionQueue = computed(() => promptQueue.value.filter((i) => i.sessionId === selectedSessionId.value));
+watch(selectedSessionStatus, (status, prevStatus) => {
+  if ((prevStatus === 'busy' || prevStatus === 'retry') && status === 'idle' && selectedSessionId.value) {
+    void tryDrainQueue(selectedSessionId.value);
+  }
+});
+watch(() => connectionState.value, (state, prevState) => {
+  if (state === 'ready' && prevState !== 'ready') {
+    void tryDrainQueue();
+  }
+});
 
 const paletteSessions = computed(() => {
   const list: Array<{ id: string; projectId: string; title?: string; slug?: string; directory?: string }> = [];
@@ -730,6 +804,28 @@ async function handleExportJson(sessionId: string) {
   const entries = await fetchSessionMessageEntries(sessionId);
   triggerDownload(`session-${sessionId}.json`, JSON.stringify(entries, null, 2), 'application/json');
 }
+
+function handleOptionKeydown(event: KeyboardEvent) {
+  if (event.altKey && !event.ctrlKey && !event.metaKey) {
+    isOptionPressed.value = true;
+  }
+}
+
+function handleOptionKeyup(event: KeyboardEvent) {
+  if (event.key === 'Alt' || !event.altKey) {
+    isOptionPressed.value = false;
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleOptionKeydown);
+  window.addEventListener('keyup', handleOptionKeyup);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleOptionKeydown);
+  window.removeEventListener('keyup', handleOptionKeyup);
+});
 
 useLifecycleWatches({
   credentials, toolWindowCanvasEl, fw, updateFloatingExtentObserver, projectDirectory, activeDirectory, selectedSessionId,

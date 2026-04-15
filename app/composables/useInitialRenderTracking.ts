@@ -2,7 +2,7 @@ import { onScopeDispose, ref, watch } from 'vue';
 import type { Ref } from 'vue';
 import type { MessageInfo } from '../types/sse';
 
-const SAFETY_TIMEOUT_MS = 5_000;
+const SAFETY_TIMEOUT_MS = 300;
 
 type UseInitialRenderTrackingOptions = {
   visibleRoots: Ref<MessageInfo[]>;

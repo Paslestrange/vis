@@ -5,7 +5,7 @@ import { decodeApiTextContent, type FileContentResponse } from './useToolWindows
 import type { TodoItem } from './useTodos';
 import type { ProjectState, WorkerNotificationEntry } from '../types/worker-state';
 
-type LocalSessionInfo = {
+export type LocalSessionInfo = {
   id: string;
   projectID?: string;
   projectId?: string;
@@ -112,7 +112,6 @@ export interface UseProjectSessionNavOptions {
   ensureConnectionReady: (action: string) => boolean;
   fetchCommands: (directory: string) => Promise<void> | void;
   bootstrapReady: Ref<boolean>;
-  sessionsByProject: ComputedRef<Record<string, LocalSessionInfo[]>>;
   fw: {
     closeAll: (options?: { exclude?: (key: string) => boolean }) => void;
   };
@@ -159,6 +158,27 @@ export interface UseProjectSessionNavOptions {
 
 export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
   const { serverState, openCodeApi, sessionSelection, homePath } = options;
+
+  function getProjectSessions(projectId: string): LocalSessionInfo[] {
+    const project = serverState.projects[projectId];
+    if (!project) return [];
+    const list: LocalSessionInfo[] = [];
+    Object.values(project.sandboxes).forEach((sandbox: any) => {
+      Object.values(sandbox.sessions).forEach((session: any) => {
+        list.push({
+          id: session.id,
+          parentID: session.parentID,
+          title: session.title,
+          slug: session.slug,
+          directory: sandbox.directory,
+          status: session.status,
+          time: { created: session.timeCreated, updated: session.timeUpdated, archived: session.timeArchived },
+          revert: session.revert,
+        });
+      });
+    });
+    return list;
+  }
 
   function normalizeDirectory(value: string) {
     const trimmed = value.replace(/\/+$/, '');
@@ -310,8 +330,9 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
   const todoPanelSessions = computed(() => {
     const allowed = options.allowedSessionIds.value;
     if (allowed.size === 0) return [] as TodoPanelSession[];
+    const sessionById = new Map(options.sessions.value.map((s) => [s.id, s]));
     const list = Array.from(allowed).map((sessionId) => {
-      const session = options.sessions.value.find((item) => item.id === sessionId);
+      const session = sessionById.get(sessionId);
       const title = options.sessionLabel(session ?? { id: sessionId });
       const isSubagent = Boolean(options.sessionParentById.value.get(sessionId));
       return {
@@ -363,7 +384,7 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
     if (!sessionId) return;
 
     const projectId = sessionSelection.selectedProjectId.value.trim();
-    const allSessions = projectId ? (options.sessionsByProject.value[projectId] ?? []) : [];
+    const allSessions = projectId ? getProjectSessions(projectId) : [];
     const current = allSessions.find((session) => session.id === sessionId);
     if (current && !current.parentID) {
       return;
@@ -503,7 +524,7 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
       });
       if (normalizeDirectory(sessionSelection.activeDirectory.value) === targetDir) {
         const projectId = sessionSelection.selectedProjectId.value.trim();
-        const candidates = (options.sessionsByProject.value[projectId] ?? []).filter(
+        const candidates = getProjectSessions(projectId).filter(
           (session) => {
             if (session.parentID || session.time?.archived) return false;
             const sessionDirectory = normalizeDirectory(
@@ -658,7 +679,6 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
       return;
     }
     options.fw.closeAll({ exclude: (key) => key.startsWith('shell:') });
-    options.msg.reset();
     options.resetFollow();
     options.reasoning.reset();
     options.subagentWindows.reset();
@@ -671,6 +691,9 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
     }
 
     const hadCache = options.messageMeta.loadCachedHistory(sessionId);
+    if (!hadCache) {
+      options.msg.reset();
+    }
     if (options.msg.roots.value.length === 0) {
       options.scrollOutputPanelToBottom(false);
     }

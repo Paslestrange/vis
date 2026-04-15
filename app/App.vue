@@ -274,7 +274,7 @@ import { useMessageMeta } from './composables/useMessageMeta';
 import { useModelOptions, buildThinkingOptions, buildProviderModelKey, parseProviderModelKey } from './composables/useModelOptions';
 import { useGlobalShortcuts } from './composables/useGlobalShortcuts';
 import { useCommandPalette } from './composables/useCommandPalette';
-import { useProjectSessionNav } from './composables/useProjectSessionNav';
+import { useProjectSessionNav, type LocalSessionInfo } from './composables/useProjectSessionNav';
 import { useComposerState } from './composables/useComposerState';
 import { useChatActions } from './composables/useChatActions';
 import { useOutputHandlers } from './composables/useOutputHandlers';
@@ -395,10 +395,11 @@ const navIndicatorRight = computed(() => {
 function resolveProjectIdForSession(sessionId: string): string {
   const preferredProjectId = selectedProjectId.value.trim();
   if (preferredProjectId) {
-    const preferredSessions = sessionsByProject.value[preferredProjectId] ?? [];
+    const preferredSessions = getProjectSessions(preferredProjectId);
     if (preferredSessions.some((s: any) => s.id === sessionId)) return preferredProjectId;
   }
-  for (const [projectId, projectSessions] of Object.entries(sessionsByProject.value)) {
+  for (const projectId of Object.keys(serverState.projects)) {
+    const projectSessions = getProjectSessions(projectId);
     if (projectSessions.some((s: any) => s.id === sessionId)) return projectId;
   }
   return '';
@@ -500,12 +501,21 @@ const { inputHeight, sidePanelWidth } = appLayout;
 function toSessionInfo(directory: string, session: any): any {
   return { id: session.id, parentID: session.parentID, title: session.title, slug: session.slug, directory, status: session.status, time: { created: session.timeCreated, updated: session.timeUpdated, archived: session.timeArchived }, revert: session.revert };
 }
-function collectAllSessionsByProject() { const byProject: Record<string, any[]> = {}; Object.values(serverState.projects).forEach((project: any) => { const list: any[] = []; Object.values(project.sandboxes).forEach((sandbox: any) => { Object.values(sandbox.sessions).forEach((session: any) => { list.push(toSessionInfo(sandbox.directory, session)); }); }); byProject[project.id] = list; }); return byProject; }
-const sessionsByProject = computed(() => collectAllSessionsByProject());
-const sessions = computed(() => { const projectId = selectedProjectId.value.trim(); if (!projectId) return []; const directory = activeDirectory.value.trim(); const all = sessionsByProject.value[projectId] ?? []; const roots = all.filter((session: any) => !session.parentID); const filtered = directory ? roots.filter((session: any) => !session.directory || session.directory === directory) : roots; return filtered.slice().sort((a: any, b: any) => (b.time?.created ?? 0) - (a.time?.created ?? 0)); });
-const sessionParentById = computed(() => { const map = new Map<string, string | undefined>(); const projectId = selectedProjectId.value.trim(); if (!projectId) return map; const all = sessionsByProject.value[projectId] ?? []; all.forEach((session: any) => map.set(session.id, session.parentID)); return map; });
+function getProjectSessions(projectId: string): LocalSessionInfo[] {
+  const project = serverState.projects[projectId];
+  if (!project) return [];
+  const list: LocalSessionInfo[] = [];
+  Object.values(project.sandboxes).forEach((sandbox: any) => {
+    Object.values(sandbox.sessions).forEach((session: any) => {
+      list.push(toSessionInfo(sandbox.directory, session));
+    });
+  });
+  return list;
+}
+const sessions = computed(() => { const projectId = selectedProjectId.value.trim(); if (!projectId) return []; const directory = activeDirectory.value.trim(); const all = getProjectSessions(projectId); const roots = all.filter((session: any) => !session.parentID); const filtered = directory ? roots.filter((session: any) => !session.directory || session.directory === directory) : roots; return filtered.slice().sort((a: any, b: any) => (b.time?.created ?? 0) - (a.time?.created ?? 0)); });
+const sessionParentById = computed(() => { const map = new Map<string, string | undefined>(); const projectId = selectedProjectId.value.trim(); if (!projectId) return map; const all = getProjectSessions(projectId); all.forEach((session: any) => map.set(session.id, session.parentID)); return map; });
 const runningToolIds = reactive(new Set<string>());
-function getSessionStatus(sessionId: string, projectId?: string) { const pid = (projectId || selectedProjectId.value).trim(); const all = pid ? (sessionsByProject.value[pid] ?? []) : []; const found = all.find((session: any) => session.id === sessionId); const status = found?.status; return status === 'busy' || status === 'idle' || status === 'retry' ? status : undefined; }
+function getSessionStatus(sessionId: string, projectId?: string) { const pid = (projectId || selectedProjectId.value).trim(); const all = pid ? getProjectSessions(pid) : []; const found = all.find((session: any) => session.id === sessionId); const status = found?.status; return status === 'busy' || status === 'idle' || status === 'retry' ? status : undefined; }
 const busyDescendantSessionIds = computed(() => { const allowed = allowedSessionIds.value; const selected = selectedSessionId.value; const ids: string[] = []; for (const sid of allowed) { if (sid === selected) continue; const status = getSessionStatus(sid); if (status === 'busy' || status === 'retry') ids.push(sid); } return ids; });
 const isThinking = computed(() => { const selected = selectedSessionId.value; const ownStatus = selected ? getSessionStatus(selected) : undefined; return Boolean(ownStatus === 'busy' || ownStatus === 'retry' || busyDescendantSessionIds.value.length > 0 || runningToolIds.size > 0); });
 const filteredSessions = computed(() => sessions.value); const hasSession = computed(() => sessions.value.length > 0);
@@ -524,7 +534,7 @@ const mcpServers = useMcpServers();
 const sessionStatus = useSessionStatus({ selectedSessionId, allowedSessionIds, updateReasoningExpiry });
 const { retryStatus, formatRetryTime, applySessionStatusEvent } = sessionStatus;
 
-const projectNav = useProjectSessionNav({ serverState, openCodeApi, sessionSelection, homePath, sendStatus, ensureConnectionReady, fetchCommands, bootstrapReady, sessionsByProject, fw, ge, msg, reasoning, subagentWindows, shellManager, retryStatus, todosBySessionId, todoLoadingBySessionId, todoErrorBySessionId, focusInput, fetchPendingPermissions, fetchPendingQuestions, allowedSessionIds, sessions, sessionParentById, sessionLabel, isBootstrapping: ref(false), uiInitState, messageMeta, resetFollow, scrollOutputPanelToBottom, reloadTodosForAllowedSessions, sessionError, notificationSessionOrder });
+const projectNav = useProjectSessionNav({ serverState, openCodeApi, sessionSelection, homePath, sendStatus, ensureConnectionReady, fetchCommands, bootstrapReady, fw, ge, msg, reasoning, subagentWindows, shellManager, retryStatus, todosBySessionId, todoLoadingBySessionId, todoErrorBySessionId, focusInput, fetchPendingPermissions, fetchPendingQuestions, allowedSessionIds, sessions, sessionParentById, sessionLabel, isBootstrapping: ref(false), uiInitState, messageMeta, resetFollow, scrollOutputPanelToBottom, reloadTodosForAllowedSessions, sessionError, notificationSessionOrder });
 const { editingProject, projectError, worktreeError, navigableTree, topPanelTreeData, currentProjectColor, currentProjectName, editingProjectMeta, notificationSessions, todoPanelSessions, createNewSession, createWorktreeFromWorktree, deleteWorktree, handleProjectDirectorySelect, handleNewSessionInSandbox, handleEditProject, handleSaveProject, bootstrapSelections, handleTopPanelSessionSelect, handleNotificationSessionSelect, reloadSelectedSessionState, validateSelectedSession, pickPreferredSessionId, sessionSortKey, readQuerySelection, replaceQuerySelection, createSessionInDirectory, initProjectNameFromPackageJson, resolveProjectIdForDirectory } = projectNav;
 
 function handleNotificationClick() {
@@ -741,8 +751,8 @@ watch(() => connectionState.value, (state, prevState) => {
 
 const paletteSessions = computed(() => {
   const list: Array<{ id: string; projectId: string; title?: string; slug?: string; directory?: string }> = [];
-  for (const [projectId, projectSessions] of Object.entries(sessionsByProject.value)) {
-    for (const session of projectSessions) {
+  for (const projectId of Object.keys(serverState.projects)) {
+    for (const session of getProjectSessions(projectId)) {
       list.push({
         id: session.id,
         projectId,
@@ -786,7 +796,7 @@ async function handlePaletteExecute(result: Parameters<typeof palette['flatResul
   }
   if (result.type === 'project') {
     const item = (result as { type: 'project'; item: { id: string } }).item;
-    const projectSessions = sessionsByProject.value[item.id] ?? [];
+    const projectSessions = getProjectSessions(item.id);
     const targetId = pickPreferredSessionId(projectSessions);
     if (targetId) {
       await switchSessionSelection(item.id, targetId);
@@ -933,7 +943,7 @@ const { initLoadingMessage, initErrorMessage, reconnectingMessage, loginUrl, log
 
 const statusText = computed(() => { if (connectionState.value === 'reconnecting') return reconnectingMessage.value || 'Reconnecting...'; if (retryStatus.value) return `${retryStatus.value.message} | Next: ${formatRetryTime(retryStatus.value.next)}`; if (openCodeApi.pending.value) return 'Synchronizing with SSE updates...'; return projectError.value || worktreeError.value || sessionError.value || sendStatus.value; });
 const isStatusError = computed(() => Boolean(projectError.value || worktreeError.value || sessionError.value || retryStatus.value));
-const sessionRevert = computed(() => { const projectId = selectedProjectId.value.trim(); const sessionId = selectedSessionId.value.trim(); if (!projectId || !sessionId) return null; const all = sessionsByProject.value[projectId] ?? []; const session = all.find((s: any) => s.id === sessionId); return session?.revert ?? null; });
+const sessionRevert = computed(() => { const projectId = selectedProjectId.value.trim(); const sessionId = selectedSessionId.value.trim(); if (!projectId || !sessionId) return null; const all = getProjectSessions(projectId); const session = all.find((s: any) => s.id === sessionId); return session?.revert ?? null; });
 const treeDirectoryName = computed(() => { const raw = activeDirectory.value.trim(); if (!raw) return ''; const trimmed = raw.replace(/\/+$/, ''); if (!trimmed) return '/'; const segments = trimmed.split('/').filter(Boolean); return segments.at(-1) ?? '/'; });
 
 function handleSwitchWorktree(directory: string) {

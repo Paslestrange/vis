@@ -240,6 +240,14 @@
                           >
                             <Icon icon="lucide:tag" :width="14" :height="14" />
                           </button>
+                          <button
+                            type="button"
+                            class="tree-action-button rename"
+                            title="Rename session"
+                            @click.stop.prevent="handleRenameSession(session.id)"
+                          >
+                            <Icon icon="lucide:pencil" :width="14" :height="14" />
+                          </button>
                           <Dropdown
                             class="session-export-dropdown"
                             :auto-close="true"
@@ -468,6 +476,7 @@ const emit = defineEmits<{
   (event: 'update-tags', sessionId: string, tags: string[]): void;
   (event: 'export-markdown', sessionId: string): void;
   (event: 'export-json', sessionId: string): void;
+  (event: 'rename-session', payload: { sessionId: string; title: string }): void;
 }>();
 
 const menuOpen = ref(false);
@@ -731,6 +740,17 @@ function handleSessionAction(sessionId: string, close?: () => void) {
     return;
   }
   emit('archive-session', sessionId);
+}
+
+function handleRenameSession(sessionId: string) {
+  const session = displayedTree.value
+    .flatMap((w) => w.sandboxes.flatMap((s) => s.sessions))
+    .find((s) => s.id === sessionId);
+  const currentTitle = session?.title || session?.slug || '';
+  if (typeof window === 'undefined') return;
+  const nextTitle = window.prompt('Rename session', currentTitle);
+  if (nextTitle === null || nextTitle.trim() === currentTitle.trim()) return;
+  emit('rename-session', { sessionId, title: nextTitle.trim() });
 }
 
 function handleGlobalKeydown(event: KeyboardEvent) {

@@ -20,7 +20,13 @@
               <div class="app-loading-spinner" aria-hidden="true"></div>
             </div>
 
-            <template v-for="root in visibleRoots" :key="root.id">
+            <div v-if="hiddenRootCount > 0" class="load-more-roots">
+              <button type="button" @click="visibleRootLimit += VISIBLE_ROOT_BATCH">
+                Show {{ hiddenRootCount }} older message{{ hiddenRootCount > 1 ? 's' : '' }}
+              </button>
+            </div>
+
+            <template v-for="root in displayedRoots" :key="root.id">
               <ThreadBlock
                 v-show="!initialRenderTrackingActive && shouldRenderRoot(root)"
                 :root="root"
@@ -133,6 +139,24 @@ const emit = defineEmits<{
 }>();
 
 const visibleRoots = computed(() => msg.roots.value);
+
+const VISIBLE_ROOT_BATCH = 25;
+const visibleRootLimit = ref(VISIBLE_ROOT_BATCH);
+
+watch(
+  () => visibleRoots.value.map((r) => r.id).join(','),
+  () => {
+    visibleRootLimit.value = VISIBLE_ROOT_BATCH;
+  },
+);
+
+const displayedRoots = computed(() => {
+  const all = visibleRoots.value;
+  if (all.length <= visibleRootLimit.value) return all;
+  return all.slice(all.length - visibleRootLimit.value);
+});
+
+const hiddenRootCount = computed(() => visibleRoots.value.length - displayedRoots.value.length);
 
 const revertedPreviewRootId = computed(() => {
   const revert = props.sessionRevert;
@@ -369,6 +393,27 @@ defineExpose({ panelEl });
   flex-direction: column;
   gap: 6px;
   padding: 8px 12px 12px;
+}
+
+.load-more-roots {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.load-more-roots button {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #94a3b8;
+  background: transparent;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.load-more-roots button:hover {
+  color: #e2e8f0;
+  background: rgba(30, 41, 59, 0.6);
 }
 
 .output-panel-content :deep(.markdown-host code.file-ref) {

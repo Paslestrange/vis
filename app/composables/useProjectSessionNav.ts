@@ -291,7 +291,6 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
     return entries;
   });
 
-  const NAVIGABLE_MAX_SESSIONS = 5;
   const navigableTree = computed(() => {
     return topPanelTreeData.value
       .map((worktree) => ({
@@ -299,9 +298,7 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
         sandboxes: worktree.sandboxes
           .map((sandbox) => ({
             ...sandbox,
-            sessions: sandbox.sessions
-              .filter((s) => !s.archivedAt)
-              .slice(0, NAVIGABLE_MAX_SESSIONS),
+            sessions: sandbox.sessions.filter((s) => !s.archivedAt),
           }))
           .filter(
             (sandbox) => worktree.projectId !== 'global' || sandbox.sessions.length > 0,

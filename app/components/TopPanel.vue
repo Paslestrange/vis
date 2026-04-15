@@ -221,6 +221,14 @@
                         <div class="session-actions">
                           <button
                             type="button"
+                            class="tree-action-button rename"
+                            title="Rename session"
+                            @click.stop.prevent="handleRenameSession(session.id)"
+                          >
+                            <Icon icon="lucide:pencil" :width="14" :height="14" />
+                          </button>
+                          <button
+                            type="button"
                             class="tree-action-button favourite"
                             :class="{ 'is-favourite': sessionFavourites[session.id] }"
                             :title="sessionFavourites[session.id] ? 'Unfavourite' : 'Favourite'"
@@ -239,14 +247,6 @@
                             "
                           >
                             <Icon icon="lucide:tag" :width="14" :height="14" />
-                          </button>
-                          <button
-                            type="button"
-                            class="tree-action-button rename"
-                            title="Rename session"
-                            @click.stop.prevent="handleRenameSession(session.id)"
-                          >
-                            <Icon icon="lucide:pencil" :width="14" :height="14" />
                           </button>
                           <Dropdown
                             class="session-export-dropdown"
@@ -1103,11 +1103,10 @@ function handleOpenDirectory(close: () => void) {
 .tree-session-main {
   min-width: 0;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-start;
-  column-gap: 8px;
-  row-gap: 1px;
+  gap: 8px;
   flex: 1 1 auto;
 }
 

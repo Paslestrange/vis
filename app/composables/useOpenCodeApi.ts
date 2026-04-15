@@ -175,6 +175,30 @@ export function useOpenCodeApi(projects: ProjectsMap | Ref<ProjectsMap>) {
     });
   }
 
+  async function renameSession(payload: {
+    sessionId: string;
+    projectId: string;
+    title: string;
+    directory?: string;
+  }): Promise<SessionInfo> {
+    return withPending(async () => {
+      const projectId = requireProjectId(payload.projectId);
+      const session = (await opencodeApi.updateSession(
+        payload.sessionId,
+        { title: payload.title },
+        payload.directory,
+      )) as SessionInfo;
+      if (!session?.id) {
+        throw new Error('Session rename failed: invalid response.');
+      }
+      await waitWithRetry((state) => {
+        const current = findSession(state[projectId], payload.sessionId);
+        return Boolean(current && current.title === payload.title);
+      });
+      return session;
+    });
+  }
+
   async function deleteSession(payload: {
     sessionId: string;
     projectId: string;
@@ -301,6 +325,7 @@ export function useOpenCodeApi(projects: ProjectsMap | Ref<ProjectsMap>) {
     createSession,
     forkSession,
     archiveSession,
+    renameSession,
     deleteSession,
     updateProject,
     revertSession,

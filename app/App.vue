@@ -21,6 +21,7 @@
           @delete-active-directory="deleteWorktree"
           @delete-session="sessionMutations.deleteSession"
           @archive-session="sessionMutations.archiveSession"
+          @rename-session="handleRenameSession"
           @select-session="handleTopPanelSessionSelect"
           @open-directory="openProjectPicker"
           @edit-project="handleEditProject"
@@ -1068,6 +1069,15 @@ async function handleExportMarkdown(sessionId: string) {
 async function handleExportJson(sessionId: string) {
   const entries = await fetchSessionMessageEntries(sessionId);
   triggerDownload(`session-${sessionId}.json`, JSON.stringify(entries, null, 2), 'application/json');
+}
+
+async function handleRenameSession(payload: { sessionId: string; title: string }) {
+  await openCodeApi.renameSession({
+    sessionId: payload.sessionId,
+    projectId: selectedProjectId.value,
+    title: payload.title,
+    directory: activeDirectory.value || undefined,
+  });
 }
 
 function handleOptionKeydown(event: KeyboardEvent) {

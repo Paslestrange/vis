@@ -39,7 +39,7 @@
         :down-label="navIndicatorDown"
         :left-label="navIndicatorLeft"
         :right-label="navIndicatorRight"
-        :center-label="currentProjectName"
+        :center-label="currentSessionDisplay"
       />
       <div
         ref="appBodyEl"
@@ -390,6 +390,17 @@ const navIndicatorRight = computed(() => {
   if (currentIndex < 0) return navLabel(flatSessions[0]?.title || flatSessions[0]?.slug || 'Session');
   const nextIndex = (currentIndex - 1 + flatSessions.length) % flatSessions.length;
   return navLabel(flatSessions[nextIndex]?.title || flatSessions[nextIndex]?.slug || 'Session');
+});
+
+const currentSessionDisplay = computed(() => {
+  const project = currentProjectName.value || 'Project';
+  const tree = navigableTree.value;
+  const worktree = tree.find((w) => w.projectId === selectedProjectId.value);
+  if (!worktree) return project;
+  const flatSessions = worktree.sandboxes.flatMap((s) => s.sessions);
+  const session = flatSessions.find((s) => s.id === selectedSessionId.value);
+  const sessionName = session?.title || session?.slug || 'Session';
+  return `${project} / ${sessionName}`;
 });
 
 function resolveProjectIdForSession(sessionId: string): string {

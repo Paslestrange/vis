@@ -1,5 +1,5 @@
 import { computed, readonly, shallowRef, triggerRef } from 'vue';
-import type { ShallowRef } from 'vue';
+import type { ComputedRef, ShallowRef } from 'vue';
 import type {
   MessageAttachment,
   MessageDiffEntry,
@@ -356,7 +356,15 @@ function getChildren(parentId: string): MessageInfo[] {
   return childrenByParent.value.get(parentId) ?? [];
 }
 
-function getThread(rootId: string): MessageInfo[] {
+const threadComputeds = new Map<string, ComputedRef<MessageInfo[]>>();
+const finalAnswerComputeds = new Map<string, ComputedRef<MessageInfo | undefined>>();
+
+function clearThreadCaches() {
+  threadComputeds.clear();
+  finalAnswerComputeds.clear();
+}
+
+function computeThread(rootId: string): MessageInfo[] {
   const root = get(rootId);
   if (!root) return [];
   const result: MessageInfo[] = [];
@@ -375,12 +383,30 @@ function getThread(rootId: string): MessageInfo[] {
   return result.sort(byTimeThenId);
 }
 
-function getFinalAnswer(rootId: string): MessageInfo | undefined {
-  const thread = getThread(rootId);
+function getThread(rootId: string): MessageInfo[] {
+  let comp = threadComputeds.get(rootId);
+  if (!comp) {
+    comp = computed(() => computeThread(rootId));
+    threadComputeds.set(rootId, comp);
+  }
+  return comp.value;
+}
+
+function computeFinalAnswer(rootId: string): MessageInfo | undefined {
+  const thread = computeThread(rootId);
   const assistants = thread
     .filter((message) => message.role === 'assistant' && hasTextContent(message.id))
     .sort(byTimeThenId);
   return assistants[assistants.length - 1];
+}
+
+function getFinalAnswer(rootId: string): MessageInfo | undefined {
+  let comp = finalAnswerComputeds.get(rootId);
+  if (!comp) {
+    comp = computed(() => computeFinalAnswer(rootId));
+    finalAnswerComputeds.set(rootId, comp);
+  }
+  return comp.value;
 }
 
 function loadHistory(entries: unknown[]) {
@@ -397,7 +423,6 @@ function loadHistory(entries: unknown[]) {
     if (!hasMessage) collectionChanged = true;
     if (!messageRef.value.info) {
       messageRef.value.info = accumulated?.info ?? info;
-      triggerRef(messageRef);
     }
     if (!Array.isArray(partsList)) continue;
     let addedPart = false;
@@ -421,14 +446,15 @@ function loadHistory(entries: unknown[]) {
         addedPart = true;
       }
     }
-    if (addedPart) triggerRef(messageRef);
   }
-  if (collectionChanged) triggerRef(messages);
+  triggerRef(messages);
+  clearThreadCaches();
 }
 
 function reset() {
   messages.value.clear();
   parts.clear();
+  clearThreadCaches();
   triggerRef(messages);
 }
 

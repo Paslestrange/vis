@@ -210,12 +210,6 @@
                                 >{{ tag }}</span
                               >
                             </div>
-                            <span
-                              v-if="session.timeCreated || session.timeUpdated"
-                              class="session-time"
-                            >
-                              {{ formatSessionMetaTime(session) }}
-                            </span>
                           </div>
                         </div>
                         <div class="session-actions">

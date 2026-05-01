@@ -63,6 +63,10 @@ defineProps<{
   align-items: center;
   justify-content: center;
   gap: 14px;
+  width: 100%;
+  max-width: 100vw;
+  padding: 0 12px;
+  box-sizing: border-box;
 }
 
 .nav-indicator-item {
@@ -74,7 +78,8 @@ defineProps<{
   background: rgb(15, 23, 42);
   border: 1px solid rgb(71, 85, 105);
   color: #f1f5f9;
-  max-width: 320px;
+  max-width: min(420px, 45vw);
+  min-width: 0;
 }
 
 .nav-indicator-center {
@@ -90,7 +95,8 @@ defineProps<{
   font-weight: 600;
   text-align: center;
   line-height: 1.3;
-  max-width: 320px;
+  max-width: min(600px, 80vw);
+  min-width: 0;
 }
 
 .nav-indicator-label {
@@ -98,6 +104,7 @@ defineProps<{
   font-weight: 500;
   color: #f8fafc;
   line-height: 1.25;
+  min-width: 0;
 }
 
 .nav-indicator-up-row,

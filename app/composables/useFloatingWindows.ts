@@ -214,8 +214,8 @@ export function useFloatingWindows() {
       merged.y = pos.y;
     }
 
-    const maxWidth = extent.width - 16;
-    const maxHeight = extent.height - 48;
+    const maxWidth = Math.max(100, extent.width - 16);
+    const maxHeight = Math.max(80, extent.height - 48);
     if (merged.width && merged.width > maxWidth) merged.width = maxWidth;
     if (merged.height && merged.height > maxHeight) merged.height = maxHeight;
     const windowWidth = merged.width ?? getDefaultWidth();

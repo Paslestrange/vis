@@ -234,10 +234,17 @@
   --todo-panel-open-width: clamp(260px, 26vw, 380px);
   --todo-panel-collapsed-width: 30px;
   --todo-panel-width: var(--todo-panel-open-width);
+  --project-panel-open-width: clamp(220px, 22vw, 320px);
+  --project-panel-collapsed-width: 30px;
+  --project-panel-width: var(--project-panel-open-width);
 }
 
 .app-body.todo-collapsed {
   --todo-panel-width: var(--todo-panel-collapsed-width);
+}
+
+.app-body.project-collapsed {
+  --project-panel-width: var(--project-panel-collapsed-width);
 }
 
 .app-main-column {
@@ -247,6 +254,14 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.project-panel-area {
+  position: relative;
+  flex: 0 0 var(--project-panel-width);
+  width: var(--project-panel-width);
+  min-height: 0;
+  order: -1;
 }
 
 .side-panel-area {
@@ -285,6 +300,32 @@
 }
 
 .side-resizer:hover::before {
+  background: rgba(226, 232, 240, 0.7);
+}
+
+.project-resizer {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  right: -7px;
+  width: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.project-resizer::before {
+  content: '';
+  width: 3px;
+  height: 44px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.6);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.6);
+}
+
+.project-resizer:hover::before {
   background: rgba(226, 232, 240, 0.7);
 }
 
@@ -352,6 +393,8 @@
     --todo-panel-gap: 6px;
     --todo-panel-open-width: min(280px, 75vw);
     --todo-panel-collapsed-width: 28px;
+    --project-panel-open-width: min(260px, 70vw);
+    --project-panel-collapsed-width: 28px;
   }
 
   .app-input {
@@ -359,7 +402,8 @@
   }
 
   .input-resizer,
-  .side-resizer {
+  .side-resizer,
+  .project-resizer {
     display: none;
   }
 

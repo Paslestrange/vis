@@ -21,8 +21,11 @@ export function useGlobalShortcuts(options: {
   canAbort: ComputedRef<boolean>;
   sidePanelCollapsed: Ref<boolean>;
   toggleSidePanelCollapsed: () => void;
+  projectPanelCollapsed: Ref<boolean>;
+  toggleProjectPanelCollapsed: () => void;
   startInputResize: (event: PointerEvent) => void;
   startSidePanelResize: (event: PointerEvent) => void;
+  startProjectPanelResize: (event: PointerEvent) => void;
   openAnalytics: () => void;
   openShortcutHelp: () => void;
   closeShortcutHelp: () => boolean;
@@ -51,8 +54,11 @@ export function useGlobalShortcuts(options: {
     canAbort,
     sidePanelCollapsed,
     toggleSidePanelCollapsed,
+    projectPanelCollapsed,
+    toggleProjectPanelCollapsed,
     startInputResize,
     startSidePanelResize,
+    startProjectPanelResize,
     openAnalytics,
     openShortcutHelp,
     closeShortcutHelp,

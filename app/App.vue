@@ -531,24 +531,76 @@ const { inputHeight, sidePanelWidth, projectPanelWidth } = appLayout;
 function toSessionInfo(directory: string, session: any): any {
   return { id: session.id, parentID: session.parentID, title: session.title, slug: session.slug, directory, status: session.status, time: { created: session.timeCreated, updated: session.timeUpdated, archived: session.timeArchived }, revert: session.revert };
 }
+
+// Cache project sessions to avoid rebuilding on every computed access
+const projectSessionsCache = computed(() => {
+  const cache = new Map<string, LocalSessionInfo[]>();
+  for (const [projectId, project] of Object.entries(serverState.projects)) {
+    const list: LocalSessionInfo[] = [];
+    for (const sandbox of Object.values(project.sandboxes)) {
+      for (const session of Object.values((sandbox as any).sessions)) {
+        list.push(toSessionInfo((sandbox as any).directory, session));
+      }
+    }
+    cache.set(projectId, list);
+  }
+  return cache;
+});
+
 function getProjectSessions(projectId: string): LocalSessionInfo[] {
-  const project = serverState.projects[projectId];
-  if (!project) return [];
-  const list: LocalSessionInfo[] = [];
-  Object.values(project.sandboxes).forEach((sandbox: any) => {
-    Object.values(sandbox.sessions).forEach((session: any) => {
-      list.push(toSessionInfo(sandbox.directory, session));
-    });
-  });
-  return list;
+  return projectSessionsCache.value.get(projectId) ?? [];
 }
-const sessions = computed(() => { const projectId = selectedProjectId.value.trim(); if (!projectId) return []; const directory = activeDirectory.value.trim(); const all = getProjectSessions(projectId); const roots = all.filter((session: any) => !session.parentID); const filtered = directory ? roots.filter((session: any) => !session.directory || session.directory === directory) : roots; return filtered.slice().sort((a: any, b: any) => (b.time?.created ?? 0) - (a.time?.created ?? 0)); });
-const sessionParentById = computed(() => { const map = new Map<string, string | undefined>(); const projectId = selectedProjectId.value.trim(); if (!projectId) return map; const all = getProjectSessions(projectId); all.forEach((session: any) => map.set(session.id, session.parentID)); return map; });
+
+// Combined session data computed to avoid redundant iterations
+const sessionData = computed(() => {
+  const projectId = selectedProjectId.value.trim();
+  const directory = activeDirectory.value.trim();
+  if (!projectId) {
+    return { sessions: [], sessionParentById: new Map<string, string | undefined>(), statusById: new Map<string, string>() };
+  }
+  const all = getProjectSessions(projectId);
+  const parentById = new Map<string, string | undefined>();
+  const statusById = new Map<string, string>();
+  for (const session of all) {
+    parentById.set(session.id, session.parentID);
+    if (session.status) statusById.set(session.id, session.status);
+  }
+  const roots = all.filter((session: any) => !session.parentID);
+  const filtered = directory ? roots.filter((session: any) => !session.directory || session.directory === directory) : roots;
+  const sessions = filtered.slice().sort((a: any, b: any) => (b.time?.created ?? 0) - (a.time?.created ?? 0));
+  return { sessions, sessionParentById: parentById, statusById };
+});
+
+const sessions = computed(() => sessionData.value.sessions);
+const sessionParentById = computed(() => sessionData.value.sessionParentById);
 const runningToolIds = reactive(new Set<string>());
-function getSessionStatus(sessionId: string, projectId?: string) { const pid = (projectId || selectedProjectId.value).trim(); const all = pid ? getProjectSessions(pid) : []; const found = all.find((session: any) => session.id === sessionId); const status = found?.status; return status === 'busy' || status === 'idle' || status === 'retry' ? status : undefined; }
-const busyDescendantSessionIds = computed(() => { const allowed = allowedSessionIds.value; const selected = selectedSessionId.value; const ids: string[] = []; for (const sid of allowed) { if (sid === selected) continue; const status = getSessionStatus(sid); if (status === 'busy' || status === 'retry') ids.push(sid); } return ids; });
-const isThinking = computed(() => { const selected = selectedSessionId.value; const ownStatus = selected ? getSessionStatus(selected) : undefined; return Boolean(ownStatus === 'busy' || ownStatus === 'retry' || busyDescendantSessionIds.value.length > 0 || runningToolIds.size > 0); });
-const filteredSessions = computed(() => sessions.value); const hasSession = computed(() => sessions.value.length > 0);
+
+function getSessionStatus(sessionId: string, projectId?: string) {
+  const pid = (projectId || selectedProjectId.value).trim();
+  if (!pid) return undefined;
+  return sessionData.value.statusById.get(sessionId) as 'busy' | 'idle' | 'retry' | undefined;
+}
+
+const busyDescendantSessionIds = computed(() => {
+  const allowed = allowedSessionIds.value;
+  const selected = selectedSessionId.value;
+  const ids: string[] = [];
+  for (const sid of allowed) {
+    if (sid === selected) continue;
+    const status = getSessionStatus(sid);
+    if (status === 'busy' || status === 'retry') ids.push(sid);
+  }
+  return ids;
+});
+
+const isThinking = computed(() => {
+  const selected = selectedSessionId.value;
+  const ownStatus = selected ? getSessionStatus(selected) : undefined;
+  return Boolean(ownStatus === 'busy' || ownStatus === 'retry' || busyDescendantSessionIds.value.length > 0 || runningToolIds.size > 0);
+});
+
+const filteredSessions = computed(() => sessions.value);
+const hasSession = computed(() => sessions.value.length > 0);
 const notificationSessionOrder = ref<string[]>([]);
 
 const outputHandlers = useOutputHandlers({ shellManager, fw, toolWindowCanvasEl, inputEl, appEl, inputPanelRef, outputPanelRef, sidePanelCollapsed, sidePanelActiveTab, sidePanelWidth, shikiTheme, sendStatus, serverState, sessions, selectedSessionId, activeDirectory, projectDirectory, notificationSessionOrder, sessionParentById, allowedSessionIds, busyDescendantSessionIds, runDebugCommand, autoScroller: { enableFollow, resetFollow, resumeFollow, scrollToBottom: scrollOutputPanelToBottom }, notifyContentChange, ge, sessionScope, mainSessionScope, connectionState, uiInitState, homePath });

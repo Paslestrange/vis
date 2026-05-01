@@ -687,17 +687,18 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
       return;
     }
 
-    const hadCache = options.messageMeta.loadCachedHistory(sessionId);
-    if (!hadCache) {
-      options.msg.reset();
-    }
-    if (options.msg.roots.value.length === 0) {
-      options.scrollOutputPanelToBottom(false);
-    }
+    options.msg.reset();
+    options.scrollOutputPanelToBottom(false);
 
     const directory = sessionSelection.activeDirectory.value || undefined;
 
-    void options.messageMeta.fetchHistory(sessionId);
+    const hadCache = options.messageMeta.loadCachedHistory(sessionId);
+    if (!hadCache) {
+      await options.messageMeta.fetchHistory(sessionId);
+    } else {
+      void options.messageMeta.fetchHistory(sessionId);
+    }
+
     void options.reloadTodosForAllowedSessions();
     void options.fetchPendingPermissions(directory);
     void options.fetchPendingQuestions(directory);

@@ -104,16 +104,24 @@ export function useAppInit(options: {
   }
 
   async function probeAuthRequirement() {
+    let url: URL;
     try {
-      const response = await fetch(`${loginUrl.value.replace(/\/+$/, '')}/path`, {
+      url = new URL(loginUrl.value);
+    } catch {
+      return;
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return;
+    url.pathname = '/path';
+    try {
+      const response = await fetch(url.toString(), {
         method: 'HEAD',
         signal: AbortSignal.timeout(5000),
       });
       if (response.status === 401 || response.status === 403) {
         loginRequiresAuth.value = true;
       }
-    } catch {
-      void 0;
+    } catch (err) {
+      console.warn('Auth probe failed:', err);
     }
   }
 

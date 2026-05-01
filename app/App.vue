@@ -323,6 +323,8 @@ const sidePanelAreaEl = ref<HTMLElement | null>(null);
 const outputEl = ref<HTMLElement | null>(null);
 const inputEl = ref<HTMLElement | null>(null);
 const toolWindowCanvasEl = ref<HTMLDivElement | null>(null);
+const projectPanelAreaEl = ref<HTMLElement | null>(null);
+const projectPanelCollapsed = ref(false);
 const topPanelRef = ref<{ closeSessionDropdown: () => void; toggleSessionDropdown: () => void } | null>(null);
 const inputPanelRef = ref<{ focus: () => void; reset: () => void } | null>(null);
 const outputPanelRef = ref<{ panelEl: HTMLDivElement | null } | null>(null);
@@ -524,8 +526,6 @@ const { upsertMcpPermissionEntry, removeMcpPermissionEntry, pruneMcpPermissionEn
 
 const homePath = ref(''); const serverWorktreePath = ref(''); const sidePanelCollapsed = ref(false);
 const sidePanelActiveTab = ref<'todo' | 'tree' | 'worktrees'>('tree');
-const projectPanelCollapsed = ref(false);
-const projectPanelAreaEl = ref<HTMLElement | null>(null);
 const { inputHeight, sidePanelWidth, projectPanelWidth } = appLayout;
 
 function toSessionInfo(directory: string, session: any): any {

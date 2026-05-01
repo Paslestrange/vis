@@ -687,33 +687,25 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
       return;
     }
 
-    const hadCache = options.messageMeta.loadCachedHistory(sessionId);
-    if (!hadCache) {
-      options.msg.reset();
-    }
-    if (options.msg.roots.value.length === 0) {
-      options.scrollOutputPanelToBottom(false);
-    }
-
     const directory = sessionSelection.activeDirectory.value || undefined;
 
-    const asyncTasks: Promise<unknown>[] = [
-      options.messageMeta.fetchHistory(sessionId),
-    ];
+    options.msg.reset();
 
-    if (options.uiInitState.value === 'ready') {
-      const restored = options.shellManager.restoreShellSessions();
-      if (restored) asyncTasks.push(restored);
+    const hadCache = options.messageMeta.loadCachedHistory(sessionId);
+    if (!hadCache) {
+      await options.messageMeta.fetchHistory(sessionId);
+    } else {
+      void options.messageMeta.fetchHistory(sessionId);
     }
+
+    options.scrollOutputPanelToBottom(false);
 
     void options.reloadTodosForAllowedSessions();
     void options.fetchPendingPermissions(directory);
     void options.fetchPendingQuestions(directory);
 
-    if (!hadCache) {
-      await Promise.all(asyncTasks);
-    } else {
-      void Promise.all(asyncTasks);
+    if (options.uiInitState.value === 'ready') {
+      void options.shellManager.restoreShellSessions();
     }
 
     options.focusInput();

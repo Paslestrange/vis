@@ -6,15 +6,18 @@ export function useAppLayout(deps: {
   inputEl: Ref<HTMLElement | null>;
   appBodyEl: Ref<HTMLElement | null>;
   sidePanelAreaEl: Ref<HTMLElement | null>;
+  projectPanelAreaEl: Ref<HTMLElement | null>;
   toolWindowCanvasEl: Ref<HTMLDivElement | null>;
   fw: { setExtent: (width: number, height: number) => void };
   shellManager: { scheduleShellFitAll: () => void };
 }) {
-  const { outputEl, inputEl, appBodyEl, sidePanelAreaEl, toolWindowCanvasEl, fw, shellManager } = deps;
+  const { outputEl, inputEl, appBodyEl, sidePanelAreaEl, projectPanelAreaEl, toolWindowCanvasEl, fw, shellManager } = deps;
   const inputResizeState = ref<{ startY: number; startHeight: number; minHeight: number; maxHeight: number } | null>(null);
   const inputHeight = ref<number | null>(null);
   const sidePanelResizeState = ref<{ startX: number; startWidth: number; minWidth: number; maxWidth: number } | null>(null);
   const sidePanelWidth = ref<number | null>(null);
+  const projectPanelResizeState = ref<{ startX: number; startWidth: number; minWidth: number; maxWidth: number } | null>(null);
+  const projectPanelWidth = ref<number | null>(null);
 
   function syncFloatingExtent() {
     const canvas = toolWindowCanvasEl.value;
@@ -116,11 +119,56 @@ export function useAppLayout(deps: {
     document.addEventListener('pointercancel', onUp);
   }
 
+  function startProjectPanelResize(event: PointerEvent) {
+    if (event.button !== 0) return;
+    const body = appBodyEl.value;
+    const panel = projectPanelAreaEl.value;
+    if (!body || !panel) return;
+    const bodyRect = body.getBoundingClientRect();
+    const panelRect = panel.getBoundingClientRect();
+    const style = getComputedStyle(body);
+    const gap = parseFloat(style.getPropertyValue('--todo-panel-gap')) || 10;
+    const currentWidth = panelRect.width;
+    const minW = 160;
+    const maxW = Math.max(minW, bodyRect.width * 0.5 - gap);
+    projectPanelResizeState.value = {
+      startX: event.clientX,
+      startWidth: currentWidth,
+      minWidth: minW,
+      maxWidth: maxW,
+    };
+    projectPanelWidth.value = currentWidth;
+    event.preventDefault();
+
+    const onMove = (e: PointerEvent) => {
+      if (!projectPanelResizeState.value) return;
+      const { startX, startWidth, minWidth, maxWidth } = projectPanelResizeState.value;
+      const dx = startX - e.clientX;
+      projectPanelWidth.value = clamp(startWidth + dx, minWidth, maxWidth);
+      syncFloatingExtent();
+      shellManager.scheduleShellFitAll();
+    };
+
+    const onUp = () => {
+      if (projectPanelResizeState.value) shellManager.scheduleShellFitAll();
+      projectPanelResizeState.value = null;
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+  }
+
   const api = {
     startInputResize,
     startSidePanelResize,
+    startProjectPanelResize,
     inputHeight,
     sidePanelWidth,
+    projectPanelWidth,
     syncFloatingExtent,
     shellManager: null as any,
   };

@@ -45,45 +45,23 @@
       <div
         ref="appBodyEl"
         class="app-body"
-        :class="{ 'todo-collapsed': sidePanelCollapsed }"
-        :style="sidePanelWidth !== null ? ({ '--todo-panel-width': `${sidePanelWidth}px` } as any) : undefined"
+        :class="{ 'todo-collapsed': sidePanelCollapsed, 'project-collapsed': projectPanelCollapsed }"
+        :style="(sidePanelWidth !== null || projectPanelWidth !== null) ? ({
+          ...(sidePanelWidth !== null ? { '--todo-panel-width': sidePanelWidth + 'px' } : {}),
+          ...(projectPanelWidth !== null ? { '--project-panel-width': projectPanelWidth + 'px' } : {})
+        } as any) : undefined"
       >
-        <div ref="sidePanelAreaEl" class="side-panel-area">
-          <SidePanel
-            class="todo-panel"
-            :class="{ 'is-disabled': !hasSession }"
-            :collapsed="sidePanelCollapsed"
-            :active-tab="sidePanelActiveTab"
-            :todo-sessions="todoPanelSessions"
-            :tree-nodes="treeNodes"
-            :expanded-tree-paths="expandedTreePaths"
-            :selected-tree-path="selectedTreePath"
-            :tree-loading="treeLoading"
-            :tree-error="treeError"
-            :tree-status-by-path="gitStatusByPath"
-            :tree-branch-info="gitStatus?.branch"
-            :tree-diff-stats="gitStatus?.diffStats"
-            :tree-directory-name="treeDirectoryName"
-            :tree-branch-entries="branchEntries"
-            :tree-branch-list-loading="branchListLoading"
-            :run-shell-command="shellManager.runTreeShellCommand"
-            :worktrees="worktrees"
-            :worktrees-loading="worktreesLoading"
-            :home-path="homePath"
-            @toggle-collapse="toggleSidePanelCollapsed"
-            @change-tab="setSidePanelTab"
-            @toggle-dir="toggleTreeDirectory"
-            @select-file="selectTreeFile"
-            @open-diff="fileViewers.openGitDiff"
-            @open-diff-all="(payload: { mode: 'staged' | 'changes' | 'all' }) => fileViewers.openAllGitDiff(payload.mode)"
-            @open-file="fileViewers.openFileViewer"
-            @reload="reloadTree().then(() => refreshGitStatus())"
-            @switch-worktree="handleSwitchWorktree"
-            @delete-worktree="deleteWorktree"
-            @create-worktree-from-branch="handleCreateWorktreeFromBranch"
-            @refresh-worktrees="refreshWorktrees"
+        <div ref="projectPanelAreaEl" class="project-panel-area">
+          <ProjectPanel
+            class="project-panel"
+            :collapsed="projectPanelCollapsed"
+            :tree-data="topPanelTreeData"
+            :selected-session-id="selectedSessionId"
+            :selected-project-id="selectedProjectId"
+            @toggle-collapse="toggleProjectPanelCollapsed"
+            @select-session="handleTopPanelSessionSelect"
           />
-          <div v-if="!sidePanelCollapsed" class="side-resizer" @pointerdown="appLayout.startSidePanelResize"></div>
+          <div v-if="!projectPanelCollapsed" class="project-resizer" @pointerdown="appLayout.startProjectPanelResize"></div>
         </div>
         <div class="app-main-column">
           <main ref="outputEl" class="app-output">
@@ -179,6 +157,43 @@
             />
           </TransitionGroup>
         </div>
+        <div ref="sidePanelAreaEl" class="side-panel-area">
+          <SidePanel
+            class="todo-panel"
+            :class="{ 'is-disabled': !hasSession }"
+            :collapsed="sidePanelCollapsed"
+            :active-tab="sidePanelActiveTab"
+            :todo-sessions="todoPanelSessions"
+            :tree-nodes="treeNodes"
+            :expanded-tree-paths="expandedTreePaths"
+            :selected-tree-path="selectedTreePath"
+            :tree-loading="treeLoading"
+            :tree-error="treeError"
+            :tree-status-by-path="gitStatusByPath"
+            :tree-branch-info="gitStatus?.branch"
+            :tree-diff-stats="gitStatus?.diffStats"
+            :tree-directory-name="treeDirectoryName"
+            :tree-branch-entries="branchEntries"
+            :tree-branch-list-loading="branchListLoading"
+            :run-shell-command="shellManager.runTreeShellCommand"
+            :worktrees="worktrees"
+            :worktrees-loading="worktreesLoading"
+            :home-path="homePath"
+            @toggle-collapse="toggleSidePanelCollapsed"
+            @change-tab="setSidePanelTab"
+            @toggle-dir="toggleTreeDirectory"
+            @select-file="selectTreeFile"
+            @open-diff="fileViewers.openGitDiff"
+            @open-diff-all="(payload: { mode: 'staged' | 'changes' | 'all' }) => fileViewers.openAllGitDiff(payload.mode)"
+            @open-file="fileViewers.openFileViewer"
+            @reload="reloadTree().then(() => refreshGitStatus())"
+            @switch-worktree="handleSwitchWorktree"
+            @delete-worktree="deleteWorktree"
+            @create-worktree-from-branch="handleCreateWorktreeFromBranch"
+            @refresh-worktrees="refreshWorktrees"
+          />
+          <div v-if="!sidePanelCollapsed" class="side-resizer" @pointerdown="appLayout.startSidePanelResize"></div>
+        </div>
       </div>
     </template>
     <div v-else class="app-loading-view" role="status" aria-live="polite">
@@ -230,6 +245,7 @@ import ProjectPicker from './components/ProjectPicker.vue';
 import FloatingWindow from './components/FloatingWindow.vue';
 import SubagentContent from './components/ToolWindow/Subagent.vue';
 import SidePanel from './components/SidePanel.vue';
+import ProjectPanel from './components/ProjectPanel.vue';
 import Welcome from './components/Welcome.vue';
 import TopPanel from './components/TopPanel.vue';
 import NavigationIndicator from './components/NavigationIndicator.vue';
@@ -307,6 +323,8 @@ const sidePanelAreaEl = ref<HTMLElement | null>(null);
 const outputEl = ref<HTMLElement | null>(null);
 const inputEl = ref<HTMLElement | null>(null);
 const toolWindowCanvasEl = ref<HTMLDivElement | null>(null);
+const projectPanelAreaEl = ref<HTMLElement | null>(null);
+const projectPanelCollapsed = ref(false);
 const topPanelRef = ref<{ closeSessionDropdown: () => void; toggleSessionDropdown: () => void } | null>(null);
 const inputPanelRef = ref<{ focus: () => void; reset: () => void } | null>(null);
 const outputPanelRef = ref<{ panelEl: HTMLDivElement | null } | null>(null);
@@ -335,7 +353,7 @@ const { providers, agents, commands, modelOptions, agentOptions, thinkingOptions
 
 const toolWindows = useToolWindows(fw, { activeDirectory, shikiTheme: shikiTheme as any });
 const composerDrafts = useComposerDrafts();
-const appLayout = useAppLayout({ outputEl, inputEl, appBodyEl, sidePanelAreaEl, toolWindowCanvasEl, fw, shellManager: undefined as any });
+const appLayout = useAppLayout({ outputEl, inputEl, appBodyEl, sidePanelAreaEl, projectPanelAreaEl, toolWindowCanvasEl, fw, shellManager: undefined as any });
 
 const outputPanelContainerEl = computed(() => outputPanelRef.value?.panelEl ?? undefined);
 const outputPanelScrollMode = computed<ScrollMode>(() => 'follow');
@@ -508,33 +526,93 @@ const { upsertMcpPermissionEntry, removeMcpPermissionEntry, pruneMcpPermissionEn
 
 const homePath = ref(''); const serverWorktreePath = ref(''); const sidePanelCollapsed = ref(false);
 const sidePanelActiveTab = ref<'todo' | 'tree' | 'worktrees'>('tree');
-const { inputHeight, sidePanelWidth } = appLayout;
+const { inputHeight, sidePanelWidth, projectPanelWidth } = appLayout;
 
 function toSessionInfo(directory: string, session: any): any {
   return { id: session.id, parentID: session.parentID, title: session.title, slug: session.slug, directory, status: session.status, time: { created: session.timeCreated, updated: session.timeUpdated, archived: session.timeArchived }, revert: session.revert };
 }
+
+// Cache project sessions to avoid rebuilding on every computed access
+const projectSessionsCache = computed(() => {
+  const cache = new Map<string, LocalSessionInfo[]>();
+  for (const [projectId, project] of Object.entries(serverState.projects)) {
+    const list: LocalSessionInfo[] = [];
+    for (const sandbox of Object.values(project.sandboxes)) {
+      for (const session of Object.values((sandbox as any).sessions)) {
+        list.push(toSessionInfo((sandbox as any).directory, session));
+      }
+    }
+    cache.set(projectId, list);
+  }
+  return cache;
+});
+
 function getProjectSessions(projectId: string): LocalSessionInfo[] {
-  const project = serverState.projects[projectId];
-  if (!project) return [];
-  const list: LocalSessionInfo[] = [];
-  Object.values(project.sandboxes).forEach((sandbox: any) => {
-    Object.values(sandbox.sessions).forEach((session: any) => {
-      list.push(toSessionInfo(sandbox.directory, session));
-    });
-  });
-  return list;
+  return projectSessionsCache.value.get(projectId) ?? [];
 }
-const sessions = computed(() => { const projectId = selectedProjectId.value.trim(); if (!projectId) return []; const directory = activeDirectory.value.trim(); const all = getProjectSessions(projectId); const roots = all.filter((session: any) => !session.parentID); const filtered = directory ? roots.filter((session: any) => !session.directory || session.directory === directory) : roots; return filtered.slice().sort((a: any, b: any) => (b.time?.created ?? 0) - (a.time?.created ?? 0)); });
-const sessionParentById = computed(() => { const map = new Map<string, string | undefined>(); const projectId = selectedProjectId.value.trim(); if (!projectId) return map; const all = getProjectSessions(projectId); all.forEach((session: any) => map.set(session.id, session.parentID)); return map; });
+
+// Combined session data computed to avoid redundant iterations
+const sessionData = computed(() => {
+  const projectId = selectedProjectId.value.trim();
+  const directory = activeDirectory.value.trim();
+  if (!projectId) {
+    return { sessions: [], sessionParentById: new Map<string, string | undefined>(), statusById: new Map<string, string>() };
+  }
+  const all = getProjectSessions(projectId);
+  const parentById = new Map<string, string | undefined>();
+  const statusById = new Map<string, string>();
+  for (const session of all) {
+    parentById.set(session.id, session.parentID);
+    if (session.status) statusById.set(session.id, session.status);
+  }
+  const roots = all.filter((session: any) => !session.parentID);
+  const filtered = directory ? roots.filter((session: any) => !session.directory || session.directory === directory) : roots;
+  const sessions = filtered.slice().sort((a: any, b: any) => (b.time?.created ?? 0) - (a.time?.created ?? 0));
+  return { sessions, sessionParentById: parentById, statusById };
+});
+
+const sessions = computed(() => sessionData.value.sessions);
+const sessionParentById = computed(() => sessionData.value.sessionParentById);
 const runningToolIds = reactive(new Set<string>());
-function getSessionStatus(sessionId: string, projectId?: string) { const pid = (projectId || selectedProjectId.value).trim(); const all = pid ? getProjectSessions(pid) : []; const found = all.find((session: any) => session.id === sessionId); const status = found?.status; return status === 'busy' || status === 'idle' || status === 'retry' ? status : undefined; }
-const busyDescendantSessionIds = computed(() => { const allowed = allowedSessionIds.value; const selected = selectedSessionId.value; const ids: string[] = []; for (const sid of allowed) { if (sid === selected) continue; const status = getSessionStatus(sid); if (status === 'busy' || status === 'retry') ids.push(sid); } return ids; });
-const isThinking = computed(() => { const selected = selectedSessionId.value; const ownStatus = selected ? getSessionStatus(selected) : undefined; return Boolean(ownStatus === 'busy' || ownStatus === 'retry' || busyDescendantSessionIds.value.length > 0 || runningToolIds.size > 0); });
-const filteredSessions = computed(() => sessions.value); const hasSession = computed(() => sessions.value.length > 0);
+
+function getSessionStatus(sessionId: string, projectId?: string) {
+  const pid = (projectId || selectedProjectId.value).trim();
+  if (!pid) return undefined;
+  return sessionData.value.statusById.get(sessionId) as 'busy' | 'idle' | 'retry' | undefined;
+}
+
+const busyDescendantSessionIds = computed(() => {
+  const allowed = allowedSessionIds.value;
+  const selected = selectedSessionId.value;
+  const ids: string[] = [];
+  for (const sid of allowed) {
+    if (sid === selected) continue;
+    const status = getSessionStatus(sid);
+    if (status === 'busy' || status === 'retry') ids.push(sid);
+  }
+  return ids;
+});
+
+const isThinking = computed(() => {
+  const selected = selectedSessionId.value;
+  const ownStatus = selected ? getSessionStatus(selected) : undefined;
+  return Boolean(ownStatus === 'busy' || ownStatus === 'retry' || busyDescendantSessionIds.value.length > 0 || runningToolIds.size > 0);
+});
+
+const filteredSessions = computed(() => sessions.value);
+const hasSession = computed(() => sessions.value.length > 0);
 const notificationSessionOrder = ref<string[]>([]);
 
 const outputHandlers = useOutputHandlers({ shellManager, fw, toolWindowCanvasEl, inputEl, appEl, inputPanelRef, outputPanelRef, sidePanelCollapsed, sidePanelActiveTab, sidePanelWidth, shikiTheme, sendStatus, serverState, sessions, selectedSessionId, activeDirectory, projectDirectory, notificationSessionOrder, sessionParentById, allowedSessionIds, busyDescendantSessionIds, runDebugCommand, autoScroller: { enableFollow, resetFollow, resumeFollow, scrollToBottom: scrollOutputPanelToBottom }, notifyContentChange, ge, sessionScope, mainSessionScope, connectionState, uiInitState, homePath });
-const { handleWindowResize, syncFloatingExtent, updateFloatingExtentObserver, runAppDebugCommand, handleOutputPanelMessageRendered, handleOutputPanelResumeFollow, handleOutputPanelContentResized, handleOutputPanelInitialRenderComplete, handleFloatingWindowClose, getBundledThemeNames, pickShikiTheme, normalizeDirectory, replaceHomePrefix, resolveWorktreeRelativePath, sessionLabel, getSelectedWorktreeDirectory, requireSelectedWorktree, ensureConnectionReady, readSidePanelCollapsed, persistSidePanelCollapsed, readSidePanelTab, persistSidePanelTab, toggleSidePanelCollapsed, setSidePanelTab, focusInput } = outputHandlers;
+  const { handleWindowResize, syncFloatingExtent, updateFloatingExtentObserver, runAppDebugCommand, handleOutputPanelMessageRendered, handleOutputPanelResumeFollow, handleOutputPanelContentResized, handleOutputPanelInitialRenderComplete, handleFloatingWindowClose, getBundledThemeNames, pickShikiTheme, normalizeDirectory, replaceHomePrefix, resolveWorktreeRelativePath, sessionLabel, getSelectedWorktreeDirectory, requireSelectedWorktree, ensureConnectionReady, readSidePanelCollapsed, persistSidePanelCollapsed, readSidePanelTab, persistSidePanelTab, toggleSidePanelCollapsed, setSidePanelTab, focusInput } = outputHandlers;
+
+  function toggleProjectPanelCollapsed() {
+    projectPanelCollapsed.value = !projectPanelCollapsed.value;
+    nextTick(() => {
+      syncFloatingExtent();
+      shellManager.scheduleShellFitAll();
+    });
+  }
 const storedSidePanelCollapsed = storageGet(StorageKeys.state.sidePanelCollapsed);
 sidePanelCollapsed.value = readSidePanelCollapsed();
 if (storedSidePanelCollapsed === null && typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches) {
@@ -852,8 +930,11 @@ const globalShortcuts = useGlobalShortcuts({
   canAbort,
   sidePanelCollapsed,
   toggleSidePanelCollapsed,
+  projectPanelCollapsed,
+  toggleProjectPanelCollapsed,
   startInputResize: appLayout.startInputResize,
   startSidePanelResize: appLayout.startSidePanelResize,
+  startProjectPanelResize: appLayout.startProjectPanelResize,
   openAnalytics,
   openShortcutHelp,
   closeShortcutHelp: () => {
@@ -951,7 +1032,11 @@ watch(
 );
 
 const appInit = useAppInit({ credentials, ge, bootstrapReady, selectedSessionId, activeDirectory, fetchProviders, fetchAgents, fetchCommands, fetchPendingPermissions, fetchPendingQuestions, bootstrapSelections, reloadSelectedSessionState, refreshGitStatus, shellManager, messageMeta, sendStatus, opencodeApi: opencodeApi as any, serverWorktreePath, homePath, uiInitState, connectionState });
-const { initLoadingMessage, initErrorMessage, reconnectingMessage, loginUrl, loginUsername, loginPassword, loginRequiresAuth, startInitialization, handleLogin, handleAbortInit, handleLogout } = appInit;
+const { initLoadingMessage, initErrorMessage, reconnectingMessage, loginUrl, loginUsername, loginPassword, loginRequiresAuth, startInitialization, handleLogin, handleAbortInit, handleLogout, probeAuthRequirement } = appInit;
+
+watch(loginUrl, () => {
+  void probeAuthRequirement();
+}, { immediate: true });
 
 const statusText = computed(() => { if (connectionState.value === 'reconnecting') return reconnectingMessage.value || 'Reconnecting...'; if (retryStatus.value) return `${retryStatus.value.message} | Next: ${formatRetryTime(retryStatus.value.next)}`; if (openCodeApi.pending.value) return 'Synchronizing with SSE updates...'; return projectError.value || worktreeError.value || sessionError.value || sendStatus.value; });
 const isStatusError = computed(() => Boolean(projectError.value || worktreeError.value || sessionError.value || retryStatus.value));

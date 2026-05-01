@@ -103,6 +103,20 @@ export function useAppInit(options: {
     }
   }
 
+  async function probeAuthRequirement() {
+    try {
+      const response = await fetch(`${loginUrl.value.replace(/\/+$/, '')}/path`, {
+        method: 'HEAD',
+        signal: AbortSignal.timeout(5000),
+      });
+      if (response.status === 401 || response.status === 403) {
+        loginRequiresAuth.value = true;
+      }
+    } catch {
+      void 0;
+    }
+  }
+
   async function startInitialization() {
     if (initializationInFlight) return;
     initializationInFlight = true;
@@ -142,6 +156,7 @@ export function useAppInit(options: {
       if (/\(40[13]\)/.test(msg)) {
         storageSet(StorageKeys.state.lastAuthError, msg);
         credentials.clear();
+        loginRequiresAuth.value = true;
         initErrorMessage.value = msg;
         uiInitState.value = 'login';
       } else {
@@ -191,5 +206,6 @@ export function useAppInit(options: {
     handleLogin,
     handleAbortInit,
     handleLogout,
+    probeAuthRequirement,
   };
 }

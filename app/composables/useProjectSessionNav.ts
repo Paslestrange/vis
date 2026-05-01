@@ -697,23 +697,13 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
 
     const directory = sessionSelection.activeDirectory.value || undefined;
 
-    const asyncTasks: Promise<unknown>[] = [
-      options.messageMeta.fetchHistory(sessionId),
-    ];
-
-    if (options.uiInitState.value === 'ready') {
-      const restored = options.shellManager.restoreShellSessions();
-      if (restored) asyncTasks.push(restored);
-    }
-
+    void options.messageMeta.fetchHistory(sessionId);
     void options.reloadTodosForAllowedSessions();
     void options.fetchPendingPermissions(directory);
     void options.fetchPendingQuestions(directory);
 
-    if (!hadCache) {
-      await Promise.all(asyncTasks);
-    } else {
-      void Promise.all(asyncTasks);
+    if (options.uiInitState.value === 'ready') {
+      void options.shellManager.restoreShellSessions();
     }
 
     options.focusInput();

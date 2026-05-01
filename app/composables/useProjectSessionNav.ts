@@ -687,9 +687,6 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
       return;
     }
 
-    options.msg.reset();
-    options.scrollOutputPanelToBottom(false);
-
     const directory = sessionSelection.activeDirectory.value || undefined;
 
     const hadCache = options.messageMeta.loadCachedHistory(sessionId);
@@ -698,6 +695,10 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
     } else {
       void options.messageMeta.fetchHistory(sessionId);
     }
+
+    requestAnimationFrame(() => {
+      options.scrollOutputPanelToBottom(false);
+    });
 
     void options.reloadTodosForAllowedSessions();
     void options.fetchPendingPermissions(directory);

@@ -689,6 +689,8 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
 
     const directory = sessionSelection.activeDirectory.value || undefined;
 
+    options.msg.reset();
+
     const hadCache = options.messageMeta.loadCachedHistory(sessionId);
     if (!hadCache) {
       await options.messageMeta.fetchHistory(sessionId);
@@ -696,9 +698,7 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
       void options.messageMeta.fetchHistory(sessionId);
     }
 
-    requestAnimationFrame(() => {
-      options.scrollOutputPanelToBottom(false);
-    });
+    options.scrollOutputPanelToBottom(false);
 
     void options.reloadTodosForAllowedSessions();
     void options.fetchPendingPermissions(directory);

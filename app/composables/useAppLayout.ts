@@ -53,6 +53,7 @@ export function useAppLayout(deps: {
     };
     inputHeight.value = inputRect.height;
     event.preventDefault();
+    (event.target as HTMLElement).setPointerCapture(event.pointerId);
 
     const onMove = (e: PointerEvent) => {
       if (!inputResizeState.value) return;
@@ -96,6 +97,7 @@ export function useAppLayout(deps: {
     };
     sidePanelWidth.value = currentWidth;
     event.preventDefault();
+    (event.target as HTMLElement).setPointerCapture(event.pointerId);
 
     const onMove = (e: PointerEvent) => {
       if (!sidePanelResizeState.value) return;
@@ -139,6 +141,7 @@ export function useAppLayout(deps: {
     };
     projectPanelWidth.value = currentWidth;
     event.preventDefault();
+    (event.target as HTMLElement).setPointerCapture(event.pointerId);
 
     const onMove = (e: PointerEvent) => {
       if (!projectPanelResizeState.value) return;

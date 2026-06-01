@@ -219,6 +219,7 @@ export function useMessageMeta(deps: {
   function loadCachedHistory(sessionId: string) {
     const cached = getCachedHistory(sessionId);
     if (!cached) return false;
+    msg.reset();
     msg.loadHistory(cached);
     cached.forEach((message) => {
       const info = message.info as Record<string, unknown> | undefined;
@@ -249,6 +250,7 @@ export function useMessageMeta(deps: {
         if (getSelectedWorktreeDirectory() !== requestedDirectory) return;
         setCachedHistory(sessionId, data);
       }
+      msg.reset();
       msg.loadHistory(data);
 
       data.forEach((message) => {

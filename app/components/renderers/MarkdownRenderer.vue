@@ -16,6 +16,9 @@
 import { nextTick, onBeforeUnmount, reactive, watch } from 'vue';
 import { renderWorkerHtml } from '../../utils/workerRenderer';
 
+let renderDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingRenderId = 0;
+
 const props = defineProps<{
   code?: string;
   lang?: string;
@@ -108,6 +111,15 @@ async function startRender() {
     });
 }
 
+function debouncedStartRender() {
+  pendingRenderId += 1;
+  const currentPending = pendingRenderId;
+  if (renderDebounceTimer) clearTimeout(renderDebounceTimer);
+  renderDebounceTimer = setTimeout(() => {
+    if (currentPending === pendingRenderId) startRender();
+  }, 16);
+}
+
 watch(
   () => props.html,
   async (newHtml) => {
@@ -124,7 +136,7 @@ watch(
   () => [props.code, props.lang, props.theme, props.files],
   () => {
     if (props.html != null) return;
-    startRender();
+    debouncedStartRender();
   },
   { immediate: true },
 );

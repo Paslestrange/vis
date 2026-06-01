@@ -461,28 +461,33 @@ const sessionScope = ge.session(selectedSessionId, computed(() => { const r: Rec
 const mainSessionScope = ge.mainSession(selectedSessionId);
 msg.bindScope(mainSessionScope);
 
+let sessionContentCacheTimer: ReturnType<typeof setTimeout> | null = null;
 watch(
   [() => selectedSessionId.value, () => msg.messages.value],
   () => {
     const sessionId = selectedSessionId.value;
     if (!sessionId) return;
-    const chunks: string[] = [];
-    for (const entryRef of msg.messages.value.values()) {
-      const entry = entryRef.value;
-      if (!entry.info) continue;
-      const summary = (entry.info as Record<string, unknown>).summary as
-        | Record<string, unknown>
-        | undefined;
-      if (typeof summary?.title === 'string') chunks.push(summary.title);
-      if (typeof summary?.body === 'string') chunks.push(summary.body);
-      for (const partRef of entry.parts) {
-        const part = partRef.value;
-        if (part.type === 'text' && typeof part.text === 'string') {
-          chunks.push(part.text);
+    if (sessionContentCacheTimer) clearTimeout(sessionContentCacheTimer);
+    sessionContentCacheTimer = setTimeout(() => {
+      sessionContentCacheTimer = null;
+      const chunks: string[] = [];
+      for (const entryRef of msg.messages.value.values()) {
+        const entry = entryRef.value;
+        if (!entry.info) continue;
+        const summary = (entry.info as Record<string, unknown>).summary as
+          | Record<string, unknown>
+          | undefined;
+        if (typeof summary?.title === 'string') chunks.push(summary.title);
+        if (typeof summary?.body === 'string') chunks.push(summary.body);
+        for (const partRef of entry.parts) {
+          const part = partRef.value;
+          if (part.type === 'text' && typeof part.text === 'string') {
+            chunks.push(part.text);
+          }
         }
       }
-    }
-    sessionContentCache[sessionId] = chunks.join('\n');
+      sessionContentCache[sessionId] = chunks.join('\n');
+    }, 500);
   },
   { immediate: true },
 );
@@ -573,7 +578,6 @@ const sessionData = computed(() => {
 
 const sessions = computed(() => sessionData.value.sessions);
 const sessionParentById = computed(() => sessionData.value.sessionParentById);
-const runningToolIds = reactive(new Set<string>());
 
 function getSessionStatus(sessionId: string, projectId?: string) {
   const pid = (projectId || selectedProjectId.value).trim();
@@ -596,7 +600,7 @@ const busyDescendantSessionIds = computed(() => {
 const isThinking = computed(() => {
   const selected = selectedSessionId.value;
   const ownStatus = selected ? getSessionStatus(selected) : undefined;
-  return Boolean(ownStatus === 'busy' || ownStatus === 'retry' || busyDescendantSessionIds.value.length > 0 || runningToolIds.size > 0);
+  return Boolean(ownStatus === 'busy' || ownStatus === 'retry' || busyDescendantSessionIds.value.length > 0 || msg.runningToolIds.size > 0);
 });
 
 const filteredSessions = computed(() => sessions.value);
@@ -621,6 +625,7 @@ if (storedSidePanelCollapsed === null && typeof window !== 'undefined' && window
 sidePanelActiveTab.value = readSidePanelTab();
 
 const mcpServers = useMcpServers();
+const mcpServerStatus = ref<Record<string, { status: string; error?: string }>>({});
 const sessionStatus = useSessionStatus({ selectedSessionId, allowedSessionIds, updateReasoningExpiry });
 const { retryStatus, formatRetryTime, applySessionStatusEvent } = sessionStatus;
 
@@ -716,21 +721,38 @@ function openShortcutHelp() {
   });
 }
 
+async function refreshMcpStatus() {
+  try {
+    const status = await opencodeApi.listMcpServers(activeDirectory.value || undefined);
+    mcpServerStatus.value = status;
+  } catch {
+    // ignore
+  }
+}
+
 function openMcpPanel() {
   if (fw.has('mcp-servers')) {
     fw.bringToFront('mcp-servers');
     return;
   }
+  void refreshMcpStatus();
   fw.open('mcp-servers', {
     component: McpServerPanel,
     props: {
       servers: mcpServers.listServers(),
+      statusByName: mcpServerStatus.value,
       onClose: () => fw.close('mcp-servers'),
       onAdd: mcpServers.addServer,
       onUpdate: mcpServers.updateServer,
       onRemove: mcpServers.removeServer,
-      onConnect: (name: string) => opencodeApi.connectMcpServer(name, activeDirectory.value || undefined),
-      onDisconnect: (name: string) => opencodeApi.disconnectMcpServer(name, activeDirectory.value || undefined),
+      onConnect: async (name: string) => {
+        await opencodeApi.connectMcpServer(name, activeDirectory.value || undefined);
+        await refreshMcpStatus();
+      },
+      onDisconnect: async (name: string) => {
+        await opencodeApi.disconnectMcpServer(name, activeDirectory.value || undefined);
+        await refreshMcpStatus();
+      },
     },
     title: 'MCP Servers',
     width: 560,
@@ -744,8 +766,9 @@ function openMcpPanel() {
 
 watch(mcpServers.servers, () => {
   if (fw.has('mcp-servers')) {
+    void refreshMcpStatus();
     fw.open('mcp-servers', {
-      props: { servers: mcpServers.listServers() },
+      props: { servers: mcpServers.listServers(), statusByName: mcpServerStatus.value },
     });
   }
 }, { deep: true });

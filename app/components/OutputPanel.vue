@@ -28,7 +28,7 @@
 
             <template v-for="root in displayedRoots" :key="root.id">
               <ThreadBlock
-                v-show="!initialRenderTrackingActive && shouldRenderRoot(root)"
+                v-if="!initialRenderTrackingActive && shouldRenderRoot(root)"
                 :root="root"
                 :theme="theme"
                 :files-with-basenames="filesWithBasenames"
@@ -224,7 +224,7 @@ const { initialRenderTrackingActive, beginInitialRenderTracking, handleMessageRe
   });
 
 const { getAssistantHtml, getDeferredTransitionKey } = useAssistantPreRenderer({
-  visibleRoots,
+  visibleRoots: displayedRoots,
   theme: computed(() => props.theme),
   fileCacheVersion,
   filesWithBasenames,

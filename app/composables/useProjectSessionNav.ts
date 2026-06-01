@@ -680,6 +680,7 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
     options.reasoning.reset();
     options.subagentWindows.reset();
     options.retryStatus.value = null;
+    options.msg.reset();
 
     const sessionId = sessionSelection.selectedSessionId.value;
     if (!sessionId) {
@@ -688,8 +689,6 @@ export function useProjectSessionNav(options: UseProjectSessionNavOptions) {
     }
 
     const directory = sessionSelection.activeDirectory.value || undefined;
-
-    options.msg.reset();
 
     const hadCache = options.messageMeta.loadCachedHistory(sessionId);
     if (!hadCache) {

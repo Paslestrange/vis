@@ -80,13 +80,13 @@
             />
           </div>
           <button
-            v-if="showHistoryButton(root)"
+            v-if="historyCount > 0"
             type="button"
             class="ib-action ib-action-history"
-            :title="`${getHistoryEntries(root).length} entries - click to view history`"
+            :title="`${historyCount} entries - click to view history`"
             @click="showThreadHistory(root)"
           >
-            History ({{ getHistoryEntries(root).length }})
+            History ({{ historyCount }})
           </button>
         </div>
       </Transition>
@@ -173,6 +173,9 @@ const threadTargetAgentStyle = computed(() => {
     : '#4ade80';
   return { color };
 });
+
+const historyEntries = computed<HistoryEntry[]>(() => getHistoryEntries(props.root));
+const historyCount = computed(() => historyEntries.value.length);
 
 function getThread(rootId: string): MessageInfo[] {
   return msg.getThread(rootId);
@@ -298,10 +301,6 @@ function getHistoryEntryKey(entry: HistoryEntry): string {
   if (entry.kind === 'reasoning') return `reasoning:${entry.part.id}`;
   if (entry.kind === 'question') return `question:${entry.part.callID}`;
   return `tool:${entry.part.callID}`;
-}
-
-function showHistoryButton(root: MessageInfo): boolean {
-  return getHistoryEntries(root).length > 0;
 }
 
 function showThreadHistory(root: MessageInfo) {

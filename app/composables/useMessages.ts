@@ -1,4 +1,4 @@
-import { computed, readonly, shallowRef, triggerRef } from 'vue';
+import { computed, reactive, readonly, shallowRef, triggerRef } from 'vue';
 import type { ComputedRef, ShallowRef } from 'vue';
 import type {
   MessageAttachment,
@@ -129,6 +129,7 @@ function byTimeThenId(a: MessageInfo, b: MessageInfo): number {
 const acc = useDeltaAccumulator();
 const messages = shallowRef(new Map<string, ShallowRef<MessageEntry>>());
 const parts = new Map<string, ShallowRef<MessagePart>>();
+const runningToolIds = reactive(new Set<string>());
 
 const roots = computed(() => {
   const result: MessageInfo[] = [];
@@ -193,16 +194,28 @@ function updateMessage(info: MessageInfo, notifyCollection = true) {
   triggerRef(messageRef);
 }
 
+function updateRunningToolIds(part: MessagePart) {
+  if (part.type !== 'tool') return;
+  const status = part.state.status;
+  if (status === 'running' || status === 'pending') {
+    runningToolIds.add(part.callID);
+  } else {
+    runningToolIds.delete(part.callID);
+  }
+}
+
 function updatePart(part: MessagePart, notifyCollection = true) {
   const key = partLookupKey(part.messageID, part.id);
   const existing = parts.get(key);
   if (existing) {
     existing.value = part;
+    updateRunningToolIds(part);
     triggerRef(existing);
     return;
   }
   const partRef = shallowRef(part);
   parts.set(key, partRef);
+  updateRunningToolIds(part);
   const messageRef = ensureMessage(part.messageID, notifyCollection);
   messageRef.value.parts.add(partRef);
   triggerRef(messageRef);
@@ -356,10 +369,31 @@ function getChildren(parentId: string): MessageInfo[] {
   return childrenByParent.value.get(parentId) ?? [];
 }
 
+let threadCache: Map<string, MessageInfo[]> | null = null;
+let threadCacheVersion = 0;
+
+function getThreadCached(rootId: string): MessageInfo[] {
+  const currentVersion = messages.value.size + parts.size;
+  if (threadCache && threadCacheVersion === currentVersion) {
+    const cached = threadCache.get(rootId);
+    if (cached) return cached;
+    const result = computeThread(rootId);
+    threadCache.set(rootId, result);
+    return result;
+  }
+  threadCacheVersion = currentVersion;
+  threadCache = new Map();
+  const result = computeThread(rootId);
+  threadCache.set(rootId, result);
+  return result;
+}
+
 const threadComputeds = new Map<string, ComputedRef<MessageInfo[]>>();
 const finalAnswerComputeds = new Map<string, ComputedRef<MessageInfo | undefined>>();
 
 function clearThreadCaches() {
+  threadCache = null;
+  threadCacheVersion = 0;
   threadComputeds.clear();
   finalAnswerComputeds.clear();
 }
@@ -384,16 +418,11 @@ function computeThread(rootId: string): MessageInfo[] {
 }
 
 function getThread(rootId: string): MessageInfo[] {
-  let comp = threadComputeds.get(rootId);
-  if (!comp) {
-    comp = computed(() => computeThread(rootId));
-    threadComputeds.set(rootId, comp);
-  }
-  return comp.value;
+  return getThreadCached(rootId);
 }
 
 function computeFinalAnswer(rootId: string): MessageInfo | undefined {
-  const thread = computeThread(rootId);
+  const thread = getThreadCached(rootId);
   const assistants = thread
     .filter((message) => message.role === 'assistant' && hasTextContent(message.id))
     .sort(byTimeThenId);
@@ -401,12 +430,7 @@ function computeFinalAnswer(rootId: string): MessageInfo | undefined {
 }
 
 function getFinalAnswer(rootId: string): MessageInfo | undefined {
-  let comp = finalAnswerComputeds.get(rootId);
-  if (!comp) {
-    comp = computed(() => computeFinalAnswer(rootId));
-    finalAnswerComputeds.set(rootId, comp);
-  }
-  return comp.value;
+  return computeFinalAnswer(rootId);
 }
 
 function loadHistory(entries: unknown[]) {
@@ -447,8 +471,10 @@ function loadHistory(entries: unknown[]) {
       }
     }
   }
-  triggerRef(messages);
-  clearThreadCaches();
+  if (collectionChanged) {
+    triggerRef(messages);
+    clearThreadCaches();
+  }
 }
 
 function reset() {
@@ -467,6 +493,7 @@ export function useMessages() {
     messages: readonly(messages),
     roots,
     streaming,
+    runningToolIds: readonly(runningToolIds),
     get,
     getParts,
     getPartsByType,
